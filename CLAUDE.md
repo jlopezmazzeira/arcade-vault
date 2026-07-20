@@ -20,6 +20,8 @@ npm run lint    # ESLint (flat config, eslint-config-next core-web-vitals + type
 ```
 
 No test runner is configured yet.
+## Skills
+Always use /frontend-design when you need to create HTML designs
 
 ## Stack & critical version notes
 
