@@ -7,7 +7,7 @@ import { useState } from "react";
 export default function AuthPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"in" | "up">("in");
-  const [user, setUser] = useState("");
+  const [username, setUsername] = useState("");
   const [pass, setPass] = useState("");
   const [email, setEmail] = useState("");
 
@@ -33,7 +33,7 @@ export default function AuthPage() {
         <form onSubmit={submit}>
           <div className="field">
             <label>Usuario</label>
-            <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="px_kai" />
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="px_kai" />
           </div>
           {tab === "up" && (
             <div className="field slide-in">
