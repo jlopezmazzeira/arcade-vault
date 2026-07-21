@@ -1,11 +1,17 @@
 "use client";
 
+import { useActionState } from "react";
 import HighlightIcon from "@/app/_components/HighlightIcon";
 import useReveal from "@/app/_components/useReveal";
-import { HIGHLIGHTS } from "@/data/about";
+import { sendContactMessage, type ContactState } from "@/app/about/actions";
+import { HIGHLIGHTS, TIPS } from "@/data/about";
+
+const INITIAL: ContactState = { status: "idle" };
 
 export default function AboutPage() {
   useReveal();
+
+  const [state, formAction, isPending] = useActionState(sendContactMessage, INITIAL);
 
   return (
     <div className="about fade-in">
@@ -43,6 +49,64 @@ export default function AboutPage() {
         </div>
         <div className="div-bar"></div>
       </div>
+
+      {/* CONTACT */}
+      <section className="about-contact reveal">
+        <div className="contact-grid">
+          <div className="contact-intro">
+            <div className="kicker pixel neon-cyan">▸ CONTACTO</div>
+            <h2 className="contact-title">CONTÁCTANOS</h2>
+            <p className="contact-sub">
+              ¿Tienes alguna sugerencia, quieres proponer un juego, o simplemente quieres saludar?
+              Escríbenos.
+            </p>
+            <div className="contact-tips">
+              {TIPS.map((tip) => (
+                <div className="tip" key={tip.text}>
+                  <span className={"tip-led" + (tip.led ? " " + tip.led : "")}></span>
+                  {tip.text}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <form className="contact-form" action={formAction}>
+            <div className="field">
+              <label htmlFor="contact-name">NOMBRE</label>
+              <input id="contact-name" name="name" required maxLength={80} placeholder="px_kai" />
+            </div>
+            <div className="field">
+              <label htmlFor="contact-email">CORREO ELECTRÓNICO</label>
+              <input
+                id="contact-email"
+                name="email"
+                type="email"
+                required
+                maxLength={160}
+                placeholder="jugador@vault.gg"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="contact-msg">MENSAJE</label>
+              <textarea
+                id="contact-msg"
+                name="msg"
+                rows={5}
+                required
+                maxLength={2000}
+                placeholder="Cuéntanos qué tienes en mente…"
+              ></textarea>
+            </div>
+            <button className="btn xl press" type="submit" disabled={isPending} style={{ width: "100%" }}>
+              {isPending ? "ENVIANDO…" : "▶  ENVIAR MENSAJE"}
+            </button>
+            <p aria-live="polite" className="contact-status">
+              {state.status === "invalid" || state.status === "failed" ? state.message : ""}
+              {state.status === "sent" ? `GRACIAS, ${state.name.toUpperCase()}.` : ""}
+            </p>
+          </form>
+        </div>
+      </section>
     </div>
   );
 }
