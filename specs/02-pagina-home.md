@@ -1,6 +1,6 @@
 # SPEC 02 — Página de inicio
 
-> **Status:** Approved
+> **Status:** Implement
 > **Depends on:** SPEC 01
 > **Date:** 2026-07-21
 > **Objective:** Portar la landing de `references/templates/home-about/home.jsx` a la raíz del sitio, moviendo la Biblioteca a `/biblioteca`.
