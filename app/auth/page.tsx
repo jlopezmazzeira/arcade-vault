@@ -13,7 +13,7 @@ export default function AuthPage() {
 
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    router.push("/");
+    router.push("/biblioteca");
   };
 
   return (
@@ -51,7 +51,7 @@ export default function AuthPage() {
           </button>
         </form>
 
-        <Link className="btn ghost" href="/" style={{ width: "100%", marginTop: 10 }}>
+        <Link className="btn ghost" href="/biblioteca" style={{ width: "100%", marginTop: 10 }}>
           JUGAR COMO INVITADO
         </Link>
 

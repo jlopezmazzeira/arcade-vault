@@ -8,7 +8,7 @@ export default function NotFound() {
       <div style={{ color: "var(--ink-faint)", marginBottom: 32 }}>
         Esta máquina no está en el salón. Puede que la hayan retirado del vault.
       </div>
-      <Link className="btn lg" href="/">VOLVER AL VAULT</Link>
+      <Link className="btn lg" href="/biblioteca">VOLVER AL VAULT</Link>
     </div>
   );
 }
