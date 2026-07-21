@@ -1276,3 +1276,36 @@ input:focus-visible {
    barras salían a 0x0 y sin fondo. Estas reglas las hacen visibles. */
 .tp-bar { position: relative; height: 6px; background: rgba(255, 255, 255, 0.06); }
 .tp-fill { display: block; height: 100%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+
+/* ===== HOME: reduced motion + salvaguarda sin JS =====
+   Va al final y no dentro del bloque de prefers-reduced-motion de arriba:
+   ese bloque precede al CSS de la home, y a igual especificidad gana la regla
+   posterior — .reveal { opacity: 0 } lo anularía. */
+@media (prefers-reduced-motion: reduce) {
+  .home-silos .silo,
+  .hero-scroll .arrow,
+  .live-led span {
+    animation: none;
+  }
+
+  /* tick-row y reveal quedan ocultos si solo se anula la animación */
+  .tick-row {
+    animation: none;
+    opacity: 1;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Sin JS no se añade .in, y .reveal arranca en opacity: 0: media home en
+   blanco de forma permanente y silenciosa. */
+@media (scripting: none) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
