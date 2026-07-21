@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import GameCard from "./_components/GameCard";
+import GameCard from "@/app/_components/GameCard";
 import { CATS, GAMES, type FilterCategory } from "@/data/games";
 
 export default function LibraryPage() {
