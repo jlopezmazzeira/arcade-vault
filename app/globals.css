@@ -122,6 +122,15 @@ a { color: inherit; text-decoration: none; }
 /* ===== app frame ===== */
 #root { position: relative; z-index: 2; display: flex; flex-direction: column; min-height: 100%; }
 .av-main { flex: 1; }
+.av-footer {
+  border-top: 1px solid var(--line);
+  padding: 20px 32px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
 
 /* ===== pixel + neon text ===== */
 .pixel { font-family: var(--pixel); letter-spacing: 0.04em; line-height: 1.25; text-transform: uppercase; }
@@ -972,3 +981,42 @@ a { color: inherit; text-decoration: none; }
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 @keyframes spinpix { to { transform: rotate(360deg); } }
+
+/* ===== foco visible ===== */
+.btn:focus-visible,
+.chip:focus-visible,
+.av-nav .links a:focus-visible,
+.av-mobile-panel a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 10px rgba(0, 245, 255, 0.45);
+}
+
+/* ===== movimiento reducido ===== */
+@media (prefers-reduced-motion: reduce) {
+  .av-bg::before,
+  .flicker,
+  .btn.pulse,
+  .av-hero .sub .blink,
+  .game-arena .grid-floor,
+  .game-arena .player-ship,
+  .game-arena .e1,
+  .game-arena .e2,
+  .game-arena .e3,
+  .fade-in,
+  .slide-in {
+    animation: none;
+  }
+
+  /* rise y typewriter dejan el elemento oculto si solo se anula la animación */
+  .hall-table .tr {
+    animation: none;
+    opacity: 1;
+  }
+
+  .toast-saved {
+    animation: none;
+    width: 22ch;
+  }
+}
