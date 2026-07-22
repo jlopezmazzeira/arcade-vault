@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import HighlightIcon from "@/app/_components/HighlightIcon";
 import useReveal from "@/app/_components/useReveal";
 import { sendContactMessage, type ContactState } from "@/app/about/actions";
@@ -12,6 +12,28 @@ export default function AboutPage() {
   useReveal();
 
   const [state, formAction, isPending] = useActionState(sendContactMessage, INITIAL);
+
+  // Ambos flags se comparan por identidad del `state` (cada resultado de la
+  // acción es un objeto nuevo), así el estado solo se toca desde manejadores de
+  // eventos —nunca desde un efecto— y un resultado nuevo los "resetea" solo.
+
+  // "ENVIAR OTRO MENSAJE" marca el `sent` actual como descartado y vuelve a idle.
+  const [dismissed, setDismissed] = useState<ContactState | null>(null);
+  const showSuccess = state.status === "sent" && state !== dismissed;
+
+  // El shake se dispara con cada `invalid` nuevo y se apaga cuando la animación
+  // termina (onAnimationEnd), replicando el toggle de 400 ms de la plantilla sin
+  // temporizador ni efecto.
+  const [shakeDone, setShakeDone] = useState<ContactState | null>(null);
+  const shaking = state.status === "invalid" && state !== shakeDone;
+
+  // Valores enviados para repoblar los campos: React resetea el <form action>
+  // tras la acción y el reset nativo restaura estos defaultValue. En idle/sent
+  // son "" → formulario vacío.
+  const values =
+    state.status === "invalid" || state.status === "failed"
+      ? state.values
+      : { name: "", email: "", msg: "" };
 
   return (
     <div className="about fade-in">
@@ -70,41 +92,124 @@ export default function AboutPage() {
             </div>
           </div>
 
-          <form className="contact-form" action={formAction}>
-            <div className="field">
-              <label htmlFor="contact-name">NOMBRE</label>
-              <input id="contact-name" name="name" required maxLength={80} placeholder="px_kai" />
+          {showSuccess ? (
+            <div className="terminal-success">
+              <div className="term-bar">
+                <span className="dot r"></span>
+                <span className="dot y"></span>
+                <span className="dot g"></span>
+                <span className="term-title">VAULT-OS // TERMINAL</span>
+              </div>
+              <div className="term-body">
+                <div className="line">
+                  <span className="prompt">vault@arcade:~$</span> ./send_message --to=team
+                </div>
+                <div className="line dim">[OK] Conectando con servidor…</div>
+                <div className="line dim">[OK] Validando contenido…</div>
+                <div className="line dim">[OK] Transmitiendo paquete…</div>
+                <div className="line success" aria-live="polite">
+                  &gt; MENSAJE RECIBIDO. TE RESPONDEREMOS PRONTO. GRACIAS, {state.name.toUpperCase()}.
+                  <span className="caret">_</span>
+                </div>
+                <div style={{ marginTop: 18 }}>
+                  <button className="btn ghost" type="button" onClick={() => setDismissed(state)}>
+                    ENVIAR OTRO MENSAJE
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="contact-email">CORREO ELECTRÓNICO</label>
-              <input
-                id="contact-email"
-                name="email"
-                type="email"
-                required
-                maxLength={160}
-                placeholder="jugador@vault.gg"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="contact-msg">MENSAJE</label>
-              <textarea
-                id="contact-msg"
-                name="msg"
-                rows={5}
-                required
-                maxLength={2000}
-                placeholder="Cuéntanos qué tienes en mente…"
-              ></textarea>
-            </div>
-            <button className="btn xl press" type="submit" disabled={isPending} style={{ width: "100%" }}>
-              {isPending ? "ENVIANDO…" : "▶  ENVIAR MENSAJE"}
-            </button>
-            <p aria-live="polite" className="contact-status">
-              {state.status === "invalid" || state.status === "failed" ? state.message : ""}
-              {state.status === "sent" ? `GRACIAS, ${state.name.toUpperCase()}.` : ""}
-            </p>
-          </form>
+          ) : (
+            <>
+              {state.status === "failed" && (
+                <div
+                  className="terminal-success"
+                  style={{
+                    borderColor: "var(--magenta)",
+                    boxShadow: "0 0 22px rgba(255,0,110,0.25)",
+                    marginBottom: 20,
+                  }}
+                >
+                  <div className="term-bar">
+                    <span className="dot r"></span>
+                    <span className="dot y"></span>
+                    <span className="dot g"></span>
+                    <span className="term-title">VAULT-OS // ERROR</span>
+                  </div>
+                  <div className="term-body">
+                    <div className="line" style={{ color: "var(--magenta)" }}>
+                      <span className="prompt">vault@arcade:~$</span> ./send_message --to=team
+                    </div>
+                    <div className="line dim">[OK] Conectando con servidor…</div>
+                    <div className="line" style={{ color: "var(--magenta)" }}>
+                      [FAIL] No se pudo transmitir el paquete.
+                    </div>
+                    <div
+                      className="success"
+                      style={{ color: "var(--magenta)", textShadow: "0 0 6px rgba(255,0,110,0.45)" }}
+                      aria-live="polite"
+                    >
+                      &gt; {state.message}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <form
+                className={"contact-form" + (shaking ? " shake" : "")}
+                action={formAction}
+                onAnimationEnd={() => setShakeDone(state)}
+              >
+                <div className="field">
+                  <label htmlFor="contact-name">NOMBRE</label>
+                  <input
+                    id="contact-name"
+                    name="name"
+                    required
+                    maxLength={80}
+                    placeholder="px_kai"
+                    defaultValue={values.name}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="contact-email">CORREO ELECTRÓNICO</label>
+                  <input
+                    id="contact-email"
+                    name="email"
+                    type="email"
+                    required
+                    maxLength={160}
+                    placeholder="jugador@vault.gg"
+                    defaultValue={values.email}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="contact-msg">MENSAJE</label>
+                  <textarea
+                    id="contact-msg"
+                    name="msg"
+                    rows={5}
+                    required
+                    maxLength={2000}
+                    placeholder="Cuéntanos qué tienes en mente…"
+                    defaultValue={values.msg}
+                  ></textarea>
+                </div>
+                <button
+                  className="btn xl press"
+                  type="submit"
+                  disabled={isPending}
+                  style={{ width: "100%" }}
+                >
+                  {isPending ? "ENVIANDO…" : "▶  ENVIAR MENSAJE"}
+                </button>
+                {state.status === "invalid" && (
+                  <p aria-live="polite" className="field" style={{ color: "var(--magenta)", marginTop: 12 }}>
+                    {state.message}
+                  </p>
+                )}
+              </form>
+            </>
+          )}
         </div>
       </section>
     </div>

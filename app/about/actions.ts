@@ -2,11 +2,17 @@
 
 import { Resend } from "resend";
 
+// Lo que el visitante escribió, tal cual (sin trim), para repoblar el formulario
+// vía defaultValue. React 19 resetea el <form action> tras la acción, y un reset
+// nativo restaura el defaultValue: si ahí van los valores enviados, "conserva lo
+// escrito" en invalid/failed sin campos controlados.
+export type ContactValues = { name: string; email: string; msg: string };
+
 export type ContactState =
   | { status: "idle" }
-  | { status: "invalid"; message: string }
+  | { status: "invalid"; message: string; values: ContactValues }
   | { status: "sent"; name: string }
-  | { status: "failed"; message: string };
+  | { status: "failed"; message: string; values: ContactValues };
 
 // Validación laxa a propósito (ver spec): `@` con texto a ambos lados y un `.`
 // después del `@`. Un regex "completo" de RFC 5322 rechaza direcciones válidas
@@ -23,21 +29,27 @@ export async function sendContactMessage(
   _prev: ContactState,
   formData: FormData
 ): Promise<ContactState> {
-  const name = String(formData.get("name") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const msg = String(formData.get("msg") ?? "").trim();
+  // Crudo (para repoblar el formulario) y saneado (para validar y enviar).
+  const values: ContactValues = {
+    name: String(formData.get("name") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    msg: String(formData.get("msg") ?? ""),
+  };
+  const name = values.name.trim();
+  const email = values.email.trim();
+  const msg = values.msg.trim();
 
   // Validación de servidor: es la que manda, porque la Server Action es un
   // endpoint público invocable sin pasar por el formulario. `required` y
   // `maxLength` del HTML son solo UX y se borran desde el inspector.
   if (!name || name.length > 80) {
-    return { status: "invalid", message: "Revisa el nombre (1-80 caracteres)." };
+    return { status: "invalid", message: "Revisa el nombre (1-80 caracteres).", values };
   }
   if (!email || email.length > 160 || !isEmailish(email)) {
-    return { status: "invalid", message: "Revisa el correo electrónico." };
+    return { status: "invalid", message: "Revisa el correo electrónico.", values };
   }
   if (!msg || msg.length > 2000) {
-    return { status: "invalid", message: "Revisa el mensaje (1-2000 caracteres)." };
+    return { status: "invalid", message: "Revisa el mensaje (1-2000 caracteres).", values };
   }
 
   // Las tres variables se leen DENTRO de la acción, no en el ámbito del módulo:
@@ -53,6 +65,7 @@ export async function sendContactMessage(
     return {
       status: "failed",
       message: "No se pudo enviar el mensaje. Inténtalo de nuevo más tarde.",
+      values,
     };
   }
 
@@ -73,6 +86,7 @@ export async function sendContactMessage(
       return {
         status: "failed",
         message: "No se pudo enviar el mensaje. Inténtalo de nuevo más tarde.",
+        values,
       };
     }
 
@@ -82,6 +96,7 @@ export async function sendContactMessage(
     return {
       status: "failed",
       message: "No se pudo enviar el mensaje. Inténtalo de nuevo más tarde.",
+      values,
     };
   }
 }
