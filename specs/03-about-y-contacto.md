@@ -1,6 +1,6 @@
 # SPEC 03 — Página «Acerca de» y formulario de contacto
 
-> **Status:** Approved
+> **Status:** Implementado
 > **Depends on:** SPEC 02
 > **Date:** 2026-07-21
 > **Objective:** Portar `references/templates/home-about/about.jsx` a `/about` y hacer que su formulario de contacto envíe un correo real de texto plano al equipo mediante la API de Resend.

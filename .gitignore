@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# playwright (artefactos de pruebas locales)
+.playwright-mcp/
+
 # vercel
 .vercel
 
