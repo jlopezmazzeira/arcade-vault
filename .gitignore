@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# playwright (artefactos de pruebas locales)
+.playwright-mcp/
 
 # vercel
 .vercel
