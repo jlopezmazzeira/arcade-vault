@@ -1299,6 +1299,16 @@ input:focus-visible {
     transform: none;
     transition: none;
   }
+
+  /* ABOUT: la banda no parpadea (pxblink) y el formulario no se agita (shake).
+     El CSS del about se anexó al final del archivo, después de este bloque, así
+     que a igual especificidad ganaría por orden: por eso se añade el ancestro
+     (.about-divider / .about-contact) y así este override vence sin depender de
+     la posición. Mismo motivo que el comentario de arriba sobre .reveal. */
+  .about-divider .div-pixels span,
+  .about-contact .contact-form.shake {
+    animation: none;
+  }
 }
 
 /* Sin JS no se añade .in, y .reveal arranca en opacity: 0: media home en
