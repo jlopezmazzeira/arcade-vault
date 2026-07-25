@@ -1,0 +1,9 @@
+.next
+out
+build
+node_modules
+next-env.d.ts
+package-lock.json
+
+# Plantillas de referencia y demos: no forman parte de la app.
+references
