@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Press_Start_2P, JetBrains_Mono, Courier_Prime } from "next/font/google";
 import Nav from "./_components/Nav";
+import type { NavUser } from "./_components/nav-user";
+import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 const pressStart = Press_Start_2P({
@@ -30,11 +32,30 @@ export const metadata: Metadata = {
     "Portal de juegos retro donde los jugadores compiten por la puntuación más alta.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Se lee la sesión en servidor con getUser() (revalida contra Auth), no con
+  // getSession() (se fía de la cookie). Leer cookies vuelve el layout dinámico:
+  // es el precio de una nav que sabe quién está dentro en toda la app.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const navUser: NavUser = user
+    ? {
+        email: user.email ?? "",
+        // Fallback al email si el display_name no estuviera en user_metadata.
+        display_name:
+          (user.user_metadata?.display_name as string | undefined) ??
+          user.email ??
+          "",
+      }
+    : null;
+
   return (
     <html
       lang="es"
@@ -44,7 +65,7 @@ export default function RootLayout({
         <div className="av-bg" />
         <div className="av-noise" />
         <div id="root">
-          <Nav />
+          <Nav user={navUser} />
           <main className="av-main">{children}</main>
           <footer className="av-footer">
             © 2026 ARCADE VAULT · HECHO CON PIXELES Y NEÓN · v2.6.0
