@@ -1,17 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { saveScore, type SaveScoreState } from "@/app/juegos/[id]/actions";
 import type { Game } from "@/data/games";
 import { getPlayableGame } from "./games/registry";
 import type { GameSnapshot, PlayableGameHandle } from "./games/AsteroidsGame";
 
 // Despachador: si el juego está adaptado (registro), monta el juego real y
 // cablea el HUD/botones a él; si no, mantiene EXACTAMENTE el mock de siempre.
-export default function GamePlayerScreen({ game }: { game: Game }) {
+//
+// `playerName` lo resuelve el servidor: el `display_name` de quien tiene sesión,
+// o `null` si juega de invitado. Solo lo usa la rama del juego real, que es la
+// única que guarda puntuación de verdad; el mock sigue con su toast.
+export default function GamePlayerScreen({
+  game,
+  playerName,
+}: {
+  game: Game;
+  playerName: string | null;
+}) {
   const Playable = getPlayableGame(game.id);
   if (Playable) {
-    return <PlayableGamePlayer game={game} Playable={Playable} />;
+    return (
+      <PlayableGamePlayer
+        game={game}
+        Playable={Playable}
+        playerName={playerName}
+      />
+    );
   }
   return <MockGamePlayer game={game} />;
 }
@@ -33,16 +56,20 @@ const INITIAL_SNAPSHOT: GameSnapshot = {
 function PlayableGamePlayer({
   game,
   Playable,
+  playerName,
 }: {
   game: Game;
   Playable: PlayableComponent;
+  playerName: string | null;
 }) {
   const gameRef = useRef<PlayableGameHandle>(null);
   const [snap, setSnap] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
-  const [name, setName] = useState("INVITADO");
-  const [saved, setSaved] = useState(false);
+  const [name, setName] = useState(playerName ?? "INVITADO");
+  // `useActionState` no se puede resetear: al empezar otra partida se remonta el
+  // formulario cambiando su `key`, y así vuelve a `idle`.
+  const [runId, setRunId] = useState(0);
 
   // El juego solo emite snapshot al cambiar un campo → el HUD refleja el estado
   // real sin saturar React.
@@ -53,7 +80,7 @@ function PlayableGamePlayer({
     gameRef.current?.restart(); // score 0, 3 vidas, nivel 1
     setPaused(false);
     setOver(false);
-    setSaved(false);
+    setRunId((n) => n + 1);
   };
 
   // FIN: congela la partida (pausa) y abre el modal con la puntuación real.
@@ -167,22 +194,14 @@ function PlayableGamePlayer({
             <h2>FIN DEL JUEGO</h2>
             <div className="final-label">PUNTUACIÓN FINAL</div>
             <div className="final">{score.toLocaleString("es-ES")}</div>
-            {!saved ? (
-              <div className="input-row">
-                <input
-                  value={name}
-                  onChange={(e) =>
-                    setName(e.target.value.toUpperCase().slice(0, 10))
-                  }
-                  placeholder="TUS INICIALES"
-                />
-                <button className="btn yellow" onClick={() => setSaved(true)}>
-                  GUARDAR PUNTUACIÓN
-                </button>
-              </div>
-            ) : (
-              <div className="toast-saved">▸ PUNTUACIÓN GUARDADA_</div>
-            )}
+            <SaveScoreForm
+              key={runId}
+              gameId={game.id}
+              score={score}
+              name={name}
+              setName={setName}
+              hasSession={playerName !== null}
+            />
             <div className="actions">
               <button className="btn" onClick={restart}>
                 JUGAR DE NUEVO
@@ -195,6 +214,66 @@ function PlayableGamePlayer({
         </div>
       )}
     </div>
+  );
+}
+
+const INITIAL_SAVE_STATE: SaveScoreState = { status: "idle" };
+
+// Guardado real: el formulario envía a la Server Action `saveScore`. `game_id` y
+// `score` van en campos ocultos, pero quien manda es el servidor — vuelve a
+// validarlos, y con sesión ignora el nombre enviado y usa el `display_name`.
+function SaveScoreForm({
+  gameId,
+  score,
+  name,
+  setName,
+  hasSession,
+}: {
+  gameId: string;
+  score: number;
+  name: string;
+  setName: (value: string) => void;
+  hasSession: boolean;
+}) {
+  const [state, formAction, isPending] = useActionState(
+    saveScore,
+    INITIAL_SAVE_STATE,
+  );
+
+  if (state.status === "saved") {
+    return <div className="toast-saved">▸ PUNTUACIÓN GUARDADA_</div>;
+  }
+
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="score" value={score} />
+      <div className="input-row">
+        <input
+          name="player_name"
+          value={name}
+          // Con sesión el nombre no se toca: el récord va firmado con la cuenta.
+          readOnly={hasSession}
+          onChange={(e) =>
+            hasSession
+              ? undefined
+              : setName(e.target.value.toUpperCase().slice(0, 10))
+          }
+          placeholder="TUS INICIALES"
+        />
+        <button className="btn yellow" disabled={isPending}>
+          {isPending ? "GUARDANDO…" : "GUARDAR PUNTUACIÓN"}
+        </button>
+      </div>
+      {(state.status === "invalid" || state.status === "error") && (
+        <div
+          className="mono"
+          style={{ marginTop: 8, fontSize: 12, color: "var(--magenta)" }}
+        >
+          {state.message}
+        </div>
+      )}
+    </form>
   );
 }
 
