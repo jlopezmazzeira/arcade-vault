@@ -8,10 +8,26 @@ import type { GameSnapshot, PlayableGameHandle } from "./games/AsteroidsGame";
 
 // Despachador: si el juego está adaptado (registro), monta el juego real y
 // cablea el HUD/botones a él; si no, mantiene EXACTAMENTE el mock de siempre.
-export default function GamePlayerScreen({ game }: { game: Game }) {
+//
+// `playerName` lo resuelve el servidor: el `display_name` de quien tiene sesión,
+// o `null` si juega de invitado. Solo lo usa la rama del juego real, que es la
+// única que guarda puntuación de verdad; el mock sigue con su toast.
+export default function GamePlayerScreen({
+  game,
+  playerName,
+}: {
+  game: Game;
+  playerName: string | null;
+}) {
   const Playable = getPlayableGame(game.id);
   if (Playable) {
-    return <PlayableGamePlayer game={game} Playable={Playable} />;
+    return (
+      <PlayableGamePlayer
+        game={game}
+        Playable={Playable}
+        playerName={playerName}
+      />
+    );
   }
   return <MockGamePlayer game={game} />;
 }
@@ -33,15 +49,17 @@ const INITIAL_SNAPSHOT: GameSnapshot = {
 function PlayableGamePlayer({
   game,
   Playable,
+  playerName,
 }: {
   game: Game;
   Playable: PlayableComponent;
+  playerName: string | null;
 }) {
   const gameRef = useRef<PlayableGameHandle>(null);
   const [snap, setSnap] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
-  const [name, setName] = useState("INVITADO");
+  const [name, setName] = useState(playerName ?? "INVITADO");
   const [saved, setSaved] = useState(false);
 
   // El juego solo emite snapshot al cambiar un campo → el HUD refleja el estado
