@@ -45,12 +45,12 @@ export default function GamePlayerScreen({
 
 type PlayableComponent = NonNullable<ReturnType<typeof getPlayableGame>>;
 
+// Solo lo que todo juego tiene. Vidas y nivel los aporta el propio juego en su
+// primer snapshot: inventarlos aquí pintaría métricas falsas en los juegos que
+// no las tienen.
 const INITIAL_SNAPSHOT: GameSnapshot = {
   score: 0,
-  lives: 3,
-  level: 1,
   status: "playing",
-  tripleShot: 0,
 };
 
 function PlayableGamePlayer({
@@ -89,7 +89,7 @@ function PlayableGamePlayer({
     setOver(true);
   };
 
-  const { score, lives, level, tripleShot } = snap;
+  const { score, lives, level, extra } = snap;
 
   return (
     <div className="av-player fade-in">
@@ -105,22 +105,26 @@ function PlayableGamePlayer({
             <div className="l">Puntuación</div>
             <div className="v">{score.toLocaleString("es-ES")}</div>
           </div>
-          <div className="hud-stat lives">
-            <div className="l">Vidas</div>
-            <div className="v">{"♥ ".repeat(lives).trim() || "—"}</div>
-          </div>
-          <div className="hud-stat level">
-            <div className="l">Nivel</div>
-            <div className="v">{String(level).padStart(2, "0")}</div>
-          </div>
-          {tripleShot > 0 && (
-            <div className="hud-stat">
-              <div className="l">Poder</div>
-              <div className="v" style={{ color: "#0ff" }}>
-                3× TRIPLE
-              </div>
+          {lives !== undefined && (
+            <div className="hud-stat lives">
+              <div className="l">Vidas</div>
+              <div className="v">{"♥ ".repeat(lives).trim() || "—"}</div>
             </div>
           )}
+          {level !== undefined && (
+            <div className="hud-stat level">
+              <div className="l">Nivel</div>
+              <div className="v">{String(level).padStart(2, "0")}</div>
+            </div>
+          )}
+          {extra?.map((stat) => (
+            <div className="hud-stat" key={stat.label}>
+              <div className="l">{stat.label}</div>
+              <div className="v" style={{ color: "#0ff" }}>
+                {stat.value}
+              </div>
+            </div>
+          ))}
         </div>
         <div className="hud-actions">
           <button
