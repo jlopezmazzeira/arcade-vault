@@ -3,6 +3,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import styles from "./AsteroidsGame.module.css";
+import type {
+  GameSnapshot,
+  PlayableGameHandle,
+  PlayableGameProps,
+  PlayableStatus,
+} from "./types";
 
 // ============================================================================
 // AsteroidsGame — puerto TypeScript del juego Asteroids de
@@ -16,30 +22,16 @@ import styles from "./AsteroidsGame.module.css";
 // ============================================================================
 
 // ── Contrato juego ↔ plataforma ─────────────────────────────────────────────
+//
+// El contrato vive en ./types. Se re-exporta aquí para no romper los imports
+// que ya apuntaban a este módulo (registry.ts, GamePlayerScreen.tsx).
 
-export type PlayableStatus = "playing" | "dead" | "gameover";
-
-export type GameSnapshot = {
-  score: number;
-  lives: number;
-  level: number;
-  status: PlayableStatus;
-  /** Segundos restantes del triple disparo; 0 si no está activo. */
-  tripleShot: number;
-};
-
-export type PlayableGameProps = {
-  /** Control externo (botón PAUSA). */
-  paused: boolean;
-  /** El juego avisa de cada cambio relevante (no en cada frame). */
-  onSnapshot: (s: GameSnapshot) => void;
-  onGameOver: (finalScore: number) => void;
-};
-
-/** Handle imperativo para los botones de la plataforma. */
-export type PlayableGameHandle = {
-  restart: () => void;
-};
+export type {
+  GameSnapshot,
+  PlayableGameHandle,
+  PlayableGameProps,
+  PlayableStatus,
+} from "./types";
 
 /** Callbacks que la fábrica usa para emitir hacia React. */
 type GameHooks = {
@@ -475,7 +467,7 @@ function createGame(
       lastSnapshot.status === state &&
       // El contador de triple disparo cambia continuamente: solo nos importa
       // el flanco activo/inactivo para el indicador del HUD.
-      lastSnapshot.tripleShot > 0 === tripleShot > 0
+      (lastSnapshot.extra?.length ?? 0) > 0 === tripleShot > 0
     ) {
       return;
     }
@@ -485,7 +477,9 @@ function createGame(
       lives,
       level,
       status: state,
-      tripleShot,
+      // El power-up viaja ya formateado: el HUD lo pinta como un `hud-stat`
+      // más, sin conocer nada de Asteroids.
+      extra: tripleShot > 0 ? [{ label: "Poder", value: "3× TRIPLE" }] : [],
     };
     lastSnapshot = snap;
     hooks.onSnapshot(snap);
