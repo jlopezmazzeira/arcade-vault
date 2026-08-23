@@ -1,5 +1,7 @@
 "use client";
 
+import type { GameSnapshot } from "./types";
+
 // ============================================================================
 // ArkanoidGame — puerto TypeScript del Arkanoid de
 // references/started-games/04-arkanoid/ (game.js, levels.js y
@@ -530,4 +532,306 @@ function stepBall(
 
     if (ball.y > VIEW_H) return; // pelota perdida: no hay más que simular
   }
+}
+
+// ── Fábrica ─────────────────────────────────────────────────────────────────
+
+/** Callbacks que la fábrica usa para emitir hacia React. */
+type GameHooks = {
+  onSnapshot: (s: GameSnapshot) => void;
+  onGameOver: (finalScore: number) => void;
+};
+
+/** Lo que la fábrica devuelve para gobernar el juego desde fuera. */
+type GameController = {
+  start: () => void;
+  stop: () => void;
+  restart: () => void;
+  setPaused: (paused: boolean) => void;
+};
+
+/**
+ * Crea una partida completa sobre `canvas`. TODO el estado mutable vive aquí
+ * dentro —incluidos `sheet` y `ready`, que el original guarda en el módulo—,
+ * así que dos montajes del componente no comparten ni pelota ni puntuación.
+ */
+function createGame(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  hooks: GameHooks,
+): GameController {
+  // ── Estado ──
+  const paddle: Paddle = {
+    x: (VIEW_W - PADDLE_W) / 2,
+    y: PADDLE_Y,
+    w: PADDLE_W,
+    h: PADDLE_H,
+  };
+  const ball: Ball = {
+    x: 0,
+    y: 0,
+    w: BALL_SIZE,
+    h: BALL_SIZE,
+    vx: 0,
+    vy: 0,
+  };
+  let blocks: Block[] = [];
+  let explosions: Explosion[] = [];
+  let lives = INITIAL_LIVES;
+  let score = 0;
+  let level = 1;
+
+  let paused = false;
+  let running = false;
+  let gameOver = false;
+
+  // El spritesheet: `sheet` es el canvas intermedio ya decodificado y `ready`
+  // el permiso para que `update` avance. `sheetImg` se conserva solo para poder
+  // anular su `onload` en `stop()` si la carga sigue en vuelo al desmontar.
+  let sheet: Spritesheet | null = null;
+  let sheetImg: HTMLImageElement | null = null;
+  let ready = false;
+
+  let rafId: number | null = null;
+  let lastTime: number | null = null;
+
+  // El juego se dibuja SIEMPRE en coordenadas lógicas 800×600; el búfer real se
+  // ajusta al tamaño en pantalla (× DPR) y el contexto se escala.
+  let scaleX = 1;
+  let scaleY = 1;
+  let resizeObserver: ResizeObserver | null = null;
+
+  const keys: Record<string, boolean> = {};
+
+  /** ¿Se puede simular? Ni sin sprites, ni en pausa, ni con la partida acabada. */
+  function isActive(): boolean {
+    return running && ready && !paused && !gameOver;
+  }
+
+  /**
+   * Carga un nivel: patrón, bloques y saque a la velocidad que le toca.
+   *
+   * Vaciar `explosions` va aquí, en la MISMA operación que construir los
+   * bloques (game.js:54): si no, los restos del nivel anterior seguirían
+   * flotando sobre el patrón nuevo.
+   */
+  function loadLevel(n: number): void {
+    level = n;
+    blocks = buildBlocks(patternForLevel(level));
+    explosions = [];
+    resetBall(ball, paddle, speedForLevel(level));
+  }
+
+  /** Suelta todas las teclas: al pausar y al reiniciar. */
+  function releaseKeys(): void {
+    for (const code of Object.keys(keys)) keys[code] = false;
+  }
+
+  // ── Update ──
+  function update(dt: number): void {
+    const speed = speedForLevel(level);
+
+    // Paleta. Su velocidad escala con el nivel igual que la pelota, así que la
+    // relación entre ambas es constante durante toda la partida.
+    const paddleSpeed = PADDLE_BASE_SPEED * speed;
+    if (keys.ArrowLeft) paddle.x = Math.max(0, paddle.x - paddleSpeed * dt);
+    if (keys.ArrowRight) {
+      paddle.x = Math.min(VIEW_W - paddle.w, paddle.x + paddleSpeed * dt);
+    }
+
+    // Pelota: paredes, paleta y bloques, resueltos sub-paso a sub-paso.
+    stepBall(ball, paddle, blocks, speed, dt, (block) => {
+      score += BLOCK_SCORE;
+      explosions.push({
+        x: block.x,
+        y: block.y,
+        w: block.w,
+        h: block.h,
+        color: block.color,
+        elapsed: 0,
+      });
+    });
+
+    // Nivel limpio: el siguiente patrón, sin techo. El `win` de la referencia
+    // (game.js:145) desaparece — la partida solo acaba al agotar las vidas.
+    if (blocks.every((b) => !b.alive)) loadLevel(level + 1);
+
+    // Explosiones: envejecen en ms y se descartan al agotar su duración. Sin
+    // este filtro el array crecería sin límite (game.js:152-153).
+    for (const exp of explosions) exp.elapsed += dt * 1000;
+    explosions = explosions.filter((exp) => exp.elapsed < EXPLOSION_DURATION);
+
+    // Pelota perdida. Si queda vida, saque inmediato desde la paleta: no hay
+    // estado intermedio que representar, igual que en la referencia.
+    if (ball.y > VIEW_H) {
+      lives--;
+      if (lives <= 0) {
+        lives = 0;
+        gameOver = true;
+      } else {
+        resetBall(ball, paddle, speedForLevel(level));
+      }
+    }
+  }
+
+  // ── Draw ──
+  //
+  // El canvas dibuja SOLO el juego: ni puntuación, ni nivel, ni pelotitas de
+  // vidas, ni overlay de PAUSA, ni GAME OVER. Todo ese chrome del original
+  // (game.js:230-248) lo pone la plataforma, y dos HUD compitiendo es el error
+  // clásico al portar un juego vanilla.
+  function draw(): void {
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    // Sin hoja no hay nada que pintar: solo el fondo. Dura lo que tarde el PNG.
+    if (!sheet) return;
+
+    for (const block of blocks) {
+      if (!block.alive) continue;
+      drawSprite(
+        ctx,
+        sheet,
+        `block_${block.color}`,
+        block.x,
+        block.y,
+        block.w,
+        block.h,
+      );
+    }
+
+    for (const exp of explosions) {
+      const frameIndex = Math.min(
+        Math.floor((exp.elapsed / EXPLOSION_DURATION) * EXPLOSION_FRAME_COUNT),
+        EXPLOSION_FRAME_COUNT - 1,
+      );
+      drawFrame(
+        ctx,
+        sheet,
+        EXPLOSION_FRAMES[exp.color][frameIndex],
+        exp.x,
+        exp.y,
+        exp.w,
+        exp.h,
+      );
+    }
+
+    drawSprite(ctx, sheet, "paddle", paddle.x, paddle.y, paddle.w, paddle.h);
+    drawSprite(ctx, sheet, "ball", ball.x, ball.y, ball.w, ball.h);
+  }
+
+  /** Ajusta el búfer al tamaño real en pantalla (× DPR) y recalcula la escala. */
+  function resize(): void {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = rect.width || VIEW_W;
+    const cssH = rect.height || VIEW_H;
+    const bw = Math.max(1, Math.round(cssW * dpr));
+    const bh = Math.max(1, Math.round(cssH * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    scaleX = canvas.width / VIEW_W;
+    scaleY = canvas.height / VIEW_H;
+    // Redimensionar el búfer restablece el estado del contexto: el suavizado
+    // hay que apagarlo DESPUÉS de cada reescalado, no una sola vez al crearlo.
+    // El spritesheet es pixel art y con suavizado sale borroso.
+    ctx.imageSmoothingEnabled = false;
+    draw(); // un resize borra el búfer: repintar para no ver un parpadeo
+  }
+
+  // ── Bucle ──
+  function loop(ts: number): void {
+    rafId = requestAnimationFrame(loop);
+    const dtMs = lastTime === null ? 0 : Math.min(ts - lastTime, DT_CAP);
+    lastTime = ts;
+    // Mientras carga el sprite, en pausa y en fin de partida NO se avanza, pero
+    // se sigue dibujando: el overlay y el modal de la plataforma van encima del
+    // canvas, y un resize recrearía el búfer en blanco con el bucle parado.
+    if (isActive()) update(dtMs / 1000);
+    draw();
+  }
+
+  // ── Listeners de teclado ──
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.key in keys) keys[e.key] = true;
+  }
+
+  function onKeyUp(e: KeyboardEvent): void {
+    if (e.key in keys) keys[e.key] = false;
+  }
+
+  // ── Controlador expuesto ──
+  function start(): void {
+    if (running) return;
+    running = true;
+    paused = false;
+    lastTime = null;
+
+    // La carga la posee la fábrica: el `sheet` y el `ready` son suyos, no del
+    // módulo, y `stop()` puede desactivar el callback si sigue en vuelo.
+    sheetImg = loadSpritesheet(SPRITE_SRC, (loaded) => {
+      sheet = loaded;
+      ready = true;
+    });
+
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+
+    resize(); // ajusta el búfer a la resolución real y pinta el primer frame
+    resizeObserver = new ResizeObserver(() => resize());
+    resizeObserver.observe(canvas);
+
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function stop(): void {
+    running = false;
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
+    // Una carga en vuelo no debe tocar un juego ya desmontado.
+    if (sheetImg) {
+      sheetImg.onload = null;
+      sheetImg.onerror = null;
+      sheetImg = null;
+    }
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("keyup", onKeyUp);
+    releaseKeys();
+  }
+
+  /** Partida limpia: nivel 1, 3 vidas, 0 puntos y la paleta centrada. */
+  function restart(): void {
+    score = 0;
+    lives = INITIAL_LIVES;
+    gameOver = false;
+    paused = false;
+    paddle.x = (VIEW_W - PADDLE_W) / 2;
+    loadLevel(1); // patrón 1, explosiones vacías y saque a velocidad inicial
+    releaseKeys();
+    lastTime = null;
+    draw();
+  }
+
+  function setPaused(next: boolean): void {
+    paused = next;
+    // Al pausar se sueltan las teclas: si no, una marcada como pulsada seguiría
+    // moviendo la paleta sola al reanudar.
+    if (paused) releaseKeys();
+  }
+
+  // Estado inicial listo antes del primer frame: nivel 1 en pantalla desde ya.
+  loadLevel(1);
+
+  return { start, stop, restart, setPaused };
 }
