@@ -91,6 +91,11 @@ function isReverse(dir: Dir, next: Dir): boolean {
   return dir.col === -next.col && dir.row === -next.row;
 }
 
+/** ¿La tecla pide el rumbo que ya se lleva? Entonces no es un giro. */
+function isSameDir(dir: Dir, next: Dir): boolean {
+  return dir.col === next.col && dir.row === next.row;
+}
+
 /** Serpiente inicial: START_LENGTH segmentos desde START_CELL hacia la izquierda. */
 function buildSnake(): Cell[] {
   return Array.from({ length: START_LENGTH }, (_, i) => ({
@@ -117,6 +122,40 @@ function pickFruitCell(snake: readonly Cell[]): Cell | null {
   }
   if (free.length === 0) return null;
   return free[Math.floor(Math.random() * free.length)];
+}
+
+// ── Teclado ─────────────────────────────────────────────────────────────────
+//
+// Flechas y WASD, por `e.code`: es la tecla FÍSICA, así que la cruz WASD sigue
+// siendo una cruz en un teclado que no sea QWERTY. Las teclas `P` / `Escape` de
+// pausa NO se capturan: `paused` es estado declarativo de la plataforma, y si el
+// juego lo conmutara por su cuenta el botón PAUSA/REANUDAR quedaría
+// desincronizado.
+
+const KEY_DIRS: Readonly<Record<string, Dir>> = {
+  ArrowUp: { col: 0, row: -1 },
+  ArrowDown: { col: 0, row: 1 },
+  ArrowLeft: { col: -1, row: 0 },
+  ArrowRight: { col: 1, row: 0 },
+  KeyW: { col: 0, row: -1 },
+  KeyS: { col: 0, row: 1 },
+  KeyA: { col: -1, row: 0 },
+  KeyD: { col: 1, row: 0 },
+};
+
+/** Teclas del juego: son las que hacen `preventDefault` con la partida activa. */
+const CONTROL_CODES = new Set<string>(Object.keys(KEY_DIRS));
+
+/** ¿El evento va dirigido a un control de texto que debe recibir la tecla? */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    target.isContentEditable
+  );
 }
 
 // ── Dibujo vectorial ────────────────────────────────────────────────────────
@@ -328,6 +367,44 @@ function createGame(
     emit();
   }
 
+  // ── Entrada de teclado ──
+
+  /**
+   * Encola un giro para el próximo paso.
+   *
+   * La cola es de UNO: encolado el primer giro válido, las teclas siguientes se
+   * descartan hasta que `step()` lo consuma. Es la defensa contra el suicidio
+   * clásico —dos teclas en el mismo tick invirtiendo la marcha—, porque la
+   * no-inversión se comprueba contra la dirección REAL de la serpiente y esa
+   * dirección no cambia hasta el paso.
+   *
+   * Ni el giro de 180° ni la tecla del rumbo que ya se lleva ocupan la plaza:
+   * no son giros, así que descartarlos no puede robarle el turno a uno que sí
+   * lo sea.
+   */
+  function queueTurn(next: Dir): void {
+    if (queuedDir) return;
+    if (isReverse(dir, next)) return;
+    if (isSameDir(dir, next)) return;
+    queuedDir = next;
+  }
+
+  function onKeyDown(e: KeyboardEvent): void {
+    // Si el foco está en un campo de texto (p.ej. las iniciales del modal de
+    // fin), el juego no toca la tecla: dejar escribir con normalidad.
+    if (isTypingTarget(e.target)) return;
+
+    if (CONTROL_CODES.has(e.code)) {
+      // preventDefault SOLO con el juego activo: en pausa o en fin de partida
+      // las flechas deben poder scrollear la página con normalidad.
+      if (isActive()) e.preventDefault();
+    }
+
+    if (!isActive()) return;
+    const next = KEY_DIRS[e.code];
+    if (next) queueTurn(next);
+  }
+
   // ── Un paso de la serpiente ──
   //
   // Se ejecuta una vez cada `tickMs`, NO una vez por frame.
@@ -434,6 +511,8 @@ function createGame(
     paused = false;
     lastTime = null;
 
+    window.addEventListener("keydown", onKeyDown);
+
     resize(); // ajusta el búfer a la resolución real y pinta el primer frame
     resizeObserver = new ResizeObserver(() => resize());
     resizeObserver.observe(canvas);
@@ -457,6 +536,8 @@ function createGame(
       resizeObserver.disconnect();
       resizeObserver = null;
     }
+    window.removeEventListener("keydown", onKeyDown);
+    queuedDir = null;
   }
 
   /** Partida limpia: 3 segmentos en el centro, 0 puntos y 130 ms por paso. */
