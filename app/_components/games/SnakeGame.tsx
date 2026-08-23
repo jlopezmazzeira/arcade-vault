@@ -275,17 +275,53 @@ function createGame(
   // Snake no tiene ni vidas ni niveles: la primera colisión acaba la partida y
   // la dificultad es una rampa continua de velocidad. El snapshot lleva `score`
   // y la longitud en `extra`; el HUD omite los dos huecos que no vienen.
+  //
+  // `status` solo vale "playing" o "gameover": sin vidas no hay estado
+  // intermedio entre chocar y terminar, así que "dead" no se usa.
+  let lastSnapshot: GameSnapshot | null = null;
+
+  /**
+   * Emite SOLO si cambió `score`, la longitud o `status` respecto al último.
+   * Nunca por frame: una partida de 10 frutas produce 11 llamadas —una por
+   * fruta más la de muerte—, no 600.
+   */
   function emit(): void {
     const status: PlayableStatus = gameOver ? "gameover" : "playing";
-    hooks.onSnapshot({
+    const length = String(snake.length);
+    if (
+      lastSnapshot &&
+      lastSnapshot.score === score &&
+      lastSnapshot.status === status &&
+      lastSnapshot.extra?.[0]?.value === length
+    ) {
+      return;
+    }
+
+    const prev = lastSnapshot;
+    const snap: GameSnapshot = {
       score,
       status,
-      extra: [{ label: "Longitud", value: String(snake.length) }],
-    });
-    if (gameOver) hooks.onGameOver(score);
+      extra: [{ label: "Longitud", value: length }],
+    };
+    lastSnapshot = snap;
+    hooks.onSnapshot(snap);
+
+    // El fin de partida se avisa una sola vez, en el flanco: el modal de fin no
+    // debe reabrirse por una emisión posterior.
+    if (gameOver && (!prev || prev.status !== "gameover")) {
+      hooks.onGameOver(score);
+    }
   }
 
-  /** Fin de partida: se detiene el avance y se emite el estado final. */
+  /**
+   * Fin de partida.
+   *
+   * Marcar `gameOver` deja `isActive()` en falso, y como el `while` del bucle lo
+   * vuelve a comprobar en cada vuelta, la serpiente NO da un paso más antes de
+   * que se avise. El `requestAnimationFrame` sigue vivo a propósito —igual que
+   * en los tres juegos ya adaptados—: solo dibuja, y sin él un resize detrás del
+   * modal de fin dejaría el canvas en blanco.
+   */
   function die(): void {
     gameOver = true;
     emit();
@@ -435,6 +471,7 @@ function createGame(
     gameOver = false;
     paused = false;
     lastTime = null;
+    lastSnapshot = null; // fuerza la re-emisión del snapshot inicial
     draw();
     emit();
   }
