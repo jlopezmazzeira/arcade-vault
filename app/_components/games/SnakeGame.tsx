@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
+import styles from "./SnakeGame.module.css";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -552,12 +553,15 @@ const SnakeGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
     );
 
     return (
-      <canvas
-        ref={canvasRef}
-        width={VIEW_W}
-        height={VIEW_H}
-        aria-label="Serpentina — guía la serpiente de luz por la rejilla y come fruta"
-      />
+      <div className={styles.stage}>
+        <canvas
+          ref={canvasRef}
+          width={VIEW_W}
+          height={VIEW_H}
+          className={styles.canvas}
+          aria-label="Serpentina — guía la serpiente de luz por la rejilla y come fruta"
+        />
+      </div>
     );
   },
 );
