@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
+import styles from "./ArkanoidGame.module.css";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -939,13 +940,13 @@ const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
       [],
     );
 
-    // El escalado dentro del marco CRT llega en el paso 7, con su hoja CSS.
     return (
-      <div>
+      <div className={styles.stage}>
         <canvas
           ref={canvasRef}
           width={VIEW_W}
           height={VIEW_H}
+          className={styles.canvas}
           aria-label="Bloque Buster — rebota la pelota y destruye muros de neón"
         />
       </div>
