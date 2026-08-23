@@ -132,6 +132,28 @@ const MAX_STEP_PX = 8;
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pelota no salta. */
 const DT_CAP = 50; // ms
 
+// ── Teclado ─────────────────────────────────────────────────────────────────
+//
+// Solo `←` y `→`, como `rocas` y `caida`. Las teclas `P` / `Escape` de pausa del
+// original desaparecen: `paused` es estado declarativo de la plataforma, y si el
+// juego lo conmutara por su cuenta el botón PAUSA/REANUDAR quedaría
+// desincronizado.
+
+/** Teclas del juego: son las que hacen `preventDefault` con la partida activa. */
+const CONTROL_CODES = new Set<string>(["ArrowLeft", "ArrowRight"]);
+
+/** ¿El evento va dirigido a un control de texto que debe recibir la tecla? */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    target.isContentEditable
+  );
+}
+
 // ── Spritesheet: rects y helpers (portados de assets/spritesheet.js) ─────────
 
 /** Recorte dentro del spritesheet: origen y tamaño en px de la hoja. */
@@ -798,11 +820,42 @@ function createGame(
 
   // ── Listeners de teclado ──
   function onKeyDown(e: KeyboardEvent): void {
-    if (e.key in keys) keys[e.key] = true;
+    // Si el foco está en un campo de texto (p.ej. las iniciales del modal de
+    // fin), el juego no toca la tecla: dejar escribir con normalidad.
+    if (isTypingTarget(e.target)) return;
+
+    if (CONTROL_CODES.has(e.code)) {
+      // preventDefault SOLO con el juego activo: en pausa o en fin de partida
+      // las flechas deben poder scrollear la página con normalidad.
+      if (isActive()) e.preventDefault();
+    }
+
+    // Selector de nivel, solo en desarrollo. La comparación literal contra
+    // `process.env.NODE_ENV` es lo que permite al bundler eliminar el bloque
+    // entero de la compilación de producción: nada de variables intermedias.
+    //
+    // Va con el juego EN PAUSA, que es el gesto del original —su selector vivía
+    // en el overlay de pausa—, y sin `preventDefault`, porque los dígitos no
+    // scrollean. En producción no existe: volver al nivel 1 desde uno alto
+    // devuelve 60 bloques frescos a velocidad ×1.0 y permitiría farmear
+    // puntuación, contaminando `public.scores` con marcas no comparables.
+    if (process.env.NODE_ENV === "development") {
+      if (paused && !gameOver && /^Digit[1-5]$/.test(e.code)) {
+        loadLevel(Number(e.code.slice(5)));
+        return;
+      }
+    }
+
+    // `keydown` se repite solo por el sistema operativo; aquí solo interesa el
+    // flanco. Con el juego inactivo la tecla NI SIQUIERA se registra: si se
+    // registrara, una pulsada durante la pausa quedaría "pegada" y movería la
+    // paleta sola al reanudar.
+    if (!isActive()) return;
+    keys[e.code] = true;
   }
 
   function onKeyUp(e: KeyboardEvent): void {
-    if (e.key in keys) keys[e.key] = false;
+    keys[e.code] = false;
   }
 
   // ── Controlador expuesto ──
