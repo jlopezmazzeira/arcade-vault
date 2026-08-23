@@ -1,6 +1,12 @@
 "use client";
 
-import type { GameSnapshot } from "./types";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+
+import type {
+  GameSnapshot,
+  PlayableGameHandle,
+  PlayableGameProps,
+} from "./types";
 
 // ============================================================================
 // ArkanoidGame — puerto TypeScript del Arkanoid de
@@ -835,3 +841,78 @@ function createGame(
 
   return { start, stop, restart, setPaused };
 }
+
+// ── Componente React ────────────────────────────────────────────────────────
+//
+// Ata el ciclo de vida del juego: el efecto de montaje crea la partida con
+// `createGame`, la arranca y —en el cleanup— la apaga entera (rAF, listeners,
+// ResizeObserver y el `onload` del spritesheet). Los callbacks entran por refs
+// espejo para NO recrear el juego cuando cambian, `paused` viaja en un efecto
+// aparte, y `restart()` se expone como método imperativo.
+
+const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
+  function ArkanoidGame({ paused, onSnapshot, onGameOver }, ref) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const gameRef = useRef<GameController | null>(null);
+
+    // Refs espejo de los callbacks: el juego lee `.current` en cada emisión, así
+    // que un cambio de prop no obliga a recrear la partida.
+    const onSnapshotRef = useRef(onSnapshot);
+    const onGameOverRef = useRef(onGameOver);
+    useEffect(() => {
+      onSnapshotRef.current = onSnapshot;
+      onGameOverRef.current = onGameOver;
+    });
+
+    // Efecto de montaje: crea, arranca y (cleanup) detiene el juego. Sin
+    // dependencias, y el cleanup lo deja todo apagado, así que el doble montaje
+    // de Strict Mode en desarrollo deja UNA sola partida y una sola pelota.
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const game = createGame(canvas, ctx, {
+        onSnapshot: (s) => onSnapshotRef.current(s),
+        onGameOver: (n) => onGameOverRef.current(n),
+      });
+      gameRef.current = game;
+      game.start();
+
+      return () => {
+        game.stop();
+        gameRef.current = null;
+      };
+    }, []);
+
+    // Propaga el control externo de pausa sin recrear el juego. Si `paused`
+    // fuera dependencia del efecto de montaje, cada pausa reiniciaría la partida.
+    useEffect(() => {
+      gameRef.current?.setPaused(paused);
+    }, [paused]);
+
+    // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
+    useImperativeHandle(
+      ref,
+      () => ({
+        restart: () => gameRef.current?.restart(),
+      }),
+      [],
+    );
+
+    // El escalado dentro del marco CRT llega en el paso 7, con su hoja CSS.
+    return (
+      <div>
+        <canvas
+          ref={canvasRef}
+          width={VIEW_W}
+          height={VIEW_H}
+          aria-label="Bloque Buster — rebota la pelota y destruye muros de neón"
+        />
+      </div>
+    );
+  },
+);
+
+export default ArkanoidGame;
