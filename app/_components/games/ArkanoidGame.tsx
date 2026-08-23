@@ -15,11 +15,114 @@
 // fin los pone la plataforma.
 // ============================================================================
 
-// ── Spritesheet: tipos, rects y helpers (portados de assets/spritesheet.js) ──
+// ── Tipos del modelo ────────────────────────────────────────────────────────
 
 /** Los siete colores de bloque del spritesheet. */
 type BlockColor =
   "red" | "yellow" | "cyan" | "magenta" | "hotpink" | "green" | "gray";
+
+/** Celda de un patrón de nivel: posición en la rejilla 10×6, sin píxeles. */
+type LevelCell = { col: number; row: number; color: BlockColor };
+
+/** Bloque ya colocado en el lienzo. `alive: false` = roto. */
+type Block = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: BlockColor;
+  alive: boolean;
+};
+
+/** Explosión en curso sobre el hueco de un bloque roto. */
+type Explosion = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: BlockColor;
+  elapsed: number; // ms transcurridos
+};
+
+type Paddle = { x: number; y: number; w: number; h: number };
+
+type Ball = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number; // px/s
+  vy: number; // px/s
+};
+
+// ── Constantes del juego (portadas 1:1 desde game.js) ───────────────────────
+
+/** Lienzo lógico. Es el 800×600 del original y también el 4/3 del marco CRT. */
+const VIEW_W = 800;
+const VIEW_H = 600;
+
+// Paleta. `w` = 81 aunque el sprite mida 162: el original lo comprime (game.js:15).
+const PADDLE_W = 81;
+const PADDLE_H = 14;
+const PADDLE_Y = 560;
+const PADDLE_BASE_SPEED = 400; // px/s al nivel 1 (game.js:4)
+
+const BALL_SIZE = 16; // game.js:16
+
+// Velocidad de saque del original (game.js:12-13). Su módulo es BALL_SPEED_BASE.
+const BASE_BALL_VX = 200;
+const BASE_BALL_VY = -300;
+
+const BLOCK_COLS = 10;
+const BLOCK_ROWS = 6;
+const BLOCK_W = 64;
+const BLOCK_H = 24;
+const BLOCKS_ORIGIN_X = (VIEW_W - BLOCK_COLS * BLOCK_W) / 2; // 80
+const BLOCKS_ORIGIN_Y = 80;
+
+const BLOCK_SCORE = 10; // puntos por bloque (game.js:140)
+const INITIAL_LIVES = 3; // game.js:23
+
+// ── Constantes nuevas de la adaptación ──────────────────────────────────────
+
+/**
+ * Progresión de velocidad: `min(2.0, 1.1^(nivel−1))`.
+ *
+ * A los niveles 1–5 da 1.00 / 1.10 / 1.21 / 1.331 / 1.4641, los cinco
+ * multiplicadores que `levels.js` lista a mano, así que esos niveles se juegan
+ * igual que en la referencia. El tope entra en el nivel 9: sin él, el bucle
+ * infinito llegaría a ×6 y dejaría de ser un reto para ser un muro.
+ */
+const SPEED_STEP = 1.1;
+const SPEED_CAP = 2.0;
+
+const DEG = Math.PI / 180;
+
+/**
+ * Ángulo de salida de la paleta, acotado por ambos lados. El mínimo evita que
+ * un golpe centrado deje la pelota vertical rebotando eternamente por la misma
+ * columna; el máximo, que quede casi horizontal entre las paredes laterales.
+ */
+const MIN_BOUNCE_ANGLE = 15 * DEG;
+const MAX_BOUNCE_ANGLE = 60 * DEG;
+
+/** Rapidez de la pelota al nivel 1. Invariante en los rebotes: solo la escala
+ *  `speedForLevel`. Es el módulo del saque original: hypot(200, 300). */
+const BALL_SPEED_BASE = Math.hypot(BASE_BALL_VX, BASE_BALL_VY); // ≈ 360.6 px/s
+
+/**
+ * Desplazamiento máximo de la pelota por sub-paso de física.
+ *
+ * A ×2.0 con el `dt` capado a 50 ms, la pelota avanzaría 36 px por frame y
+ * atravesaría bloques de 24 px de alto sin tocarlos. Es un bug que solo se
+ * manifiesta del nivel 9 en adelante, o sea justo donde nadie prueba.
+ */
+const MAX_STEP_PX = 8;
+
+/** Tope de `dt`: al volver de una pestaña en segundo plano la pelota no salta. */
+const DT_CAP = 50; // ms
+
+// ── Spritesheet: rects y helpers (portados de assets/spritesheet.js) ─────────
 
 /** Recorte dentro del spritesheet: origen y tamaño en px de la hoja. */
 type SpriteRect = { sx: number; sy: number; sw: number; sh: number };
@@ -151,4 +254,280 @@ function loadSpritesheet(
   };
   img.src = src;
   return img;
+}
+
+// ── Patrones de nivel (portados de levels.js) ───────────────────────────────
+//
+// Los cinco patrones de la referencia, ya SIN su `speed`: aquí la velocidad la
+// calcula `speedForLevel` a partir del nivel, porque los niveles no se acaban
+// en el 5 — se encadenan indefinidamente.
+
+const LEVEL_PATTERNS: LevelCell[][] = (() => {
+  const rowColors1: BlockColor[] = [
+    "red",
+    "yellow",
+    "cyan",
+    "magenta",
+    "hotpink",
+    "green",
+  ];
+  const rowColors2: BlockColor[] = [
+    "gray",
+    "cyan",
+    "hotpink",
+    "yellow",
+    "magenta",
+    "green",
+  ];
+  const rowColors4: BlockColor[] = [
+    "cyan",
+    "magenta",
+    "green",
+    "yellow",
+    "hotpink",
+    "red",
+  ];
+
+  // 1 — parrilla completa: las 6 filas × 10 columnas (60 bloques).
+  const parrilla: LevelCell[] = [];
+  for (let row = 0; row < BLOCK_ROWS; row++)
+    for (let col = 0; col < BLOCK_COLS; col++)
+      parrilla.push({ col, row, color: rowColors1[row] });
+
+  // 2 — pirámide centrada que se ensancha hacia abajo (40 bloques).
+  const piramide: LevelCell[] = [];
+  const pyStart = [4, 3, 2, 1, 0, 0];
+  const pyEnd = [5, 6, 7, 8, 9, 9];
+  for (let row = 0; row < BLOCK_ROWS; row++)
+    for (let col = pyStart[row]; col <= pyEnd[row]; col++)
+      piramide.push({ col, row, color: rowColors2[row] });
+
+  // 3 — tablero de ajedrez: solo las casillas de paridad par (30 bloques).
+  const ajedrez: LevelCell[] = [];
+  for (let row = 0; row < BLOCK_ROWS; row++)
+    for (let col = 0; col < BLOCK_COLS; col++)
+      if ((col + row) % 2 === 0)
+        ajedrez.push({ col, row, color: row < 3 ? "yellow" : "magenta" });
+
+  // 4 — filas con huecos irregulares (39 bloques).
+  const gaps4 = [
+    [2, 5, 8],
+    [0, 4, 7, 9],
+    [1, 3, 6],
+    [2, 5, 8, 9],
+    [0, 4, 7],
+    [1, 3, 6, 9],
+  ];
+  const huecos: LevelCell[] = [];
+  for (let row = 0; row < BLOCK_ROWS; row++)
+    for (let col = 0; col < BLOCK_COLS; col++)
+      if (!gaps4[row].includes(col))
+        huecos.push({ col, row, color: rowColors4[row] });
+
+  // 5 — marco perimetral con una cruz central (39 bloques).
+  const marcoCruz: LevelCell[] = [];
+  for (let row = 0; row < BLOCK_ROWS; row++)
+    for (let col = 0; col < BLOCK_COLS; col++) {
+      const isFrame = col === 0 || col === 9 || row === 0 || row === 5;
+      const isCross = col === 4 || row === 2;
+      if (isFrame || isCross)
+        marcoCruz.push({
+          col,
+          row,
+          color: isCross && !isFrame ? "hotpink" : "cyan",
+        });
+    }
+
+  return [parrilla, piramide, ajedrez, huecos, marcoCruz];
+})();
+
+// ── Reglas puras ────────────────────────────────────────────────────────────
+//
+// Reciben SIEMPRE el estado por parámetro: ninguna lee una variable de módulo.
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Multiplicador de velocidad del nivel: `min(2.0, 1.1^(nivel−1))`.
+ *
+ * Escala por igual la pelota y la paleta, así que su relación es constante
+ * durante toda la partida: los niveles altos se pierden por habilidad, no por
+ * quedarse corto de control.
+ */
+function speedForLevel(level: number): number {
+  return Math.min(SPEED_CAP, SPEED_STEP ** (level - 1));
+}
+
+/** Patrón del nivel. Los cinco se encadenan en bucle: el 6 reusa el 1. */
+function patternForLevel(level: number): LevelCell[] {
+  return LEVEL_PATTERNS[(level - 1) % LEVEL_PATTERNS.length];
+}
+
+/** Coloca un patrón en el lienzo: de celdas de rejilla a bloques en píxeles. */
+function buildBlocks(pattern: LevelCell[]): Block[] {
+  return pattern.map((cell) => ({
+    x: BLOCKS_ORIGIN_X + cell.col * BLOCK_W,
+    y: BLOCKS_ORIGIN_Y + cell.row * BLOCK_H,
+    w: BLOCK_W,
+    h: BLOCK_H,
+    color: cell.color,
+    alive: true,
+  }));
+}
+
+/** Solape de dos rectángulos alineados a los ejes (game.js:61-68). */
+function collideAABB(ball: Ball, block: Block): boolean {
+  return (
+    ball.x < block.x + block.w &&
+    ball.x + ball.w > block.x &&
+    ball.y < block.y + block.h &&
+    ball.y + ball.h > block.y
+  );
+}
+
+/** Deja la pelota sobre la paleta y la lanza a la velocidad del nivel. */
+function resetBall(ball: Ball, paddle: Paddle, speed: number): void {
+  ball.x = paddle.x + (paddle.w - ball.w) / 2;
+  ball.y = paddle.y - ball.h;
+  ball.vx = BASE_BALL_VX * speed;
+  ball.vy = BASE_BALL_VY * speed;
+}
+
+/** Paredes izquierda, derecha y techo. El suelo NO rebota: es perder una vida. */
+function bounceWalls(ball: Ball): void {
+  if (ball.x <= 0) {
+    ball.x = 0;
+    ball.vx = Math.abs(ball.vx);
+  }
+  if (ball.x + ball.w >= VIEW_W) {
+    ball.x = VIEW_W - ball.w;
+    ball.vx = -Math.abs(ball.vx);
+  }
+  if (ball.y <= 0) {
+    ball.y = 0;
+    ball.vy = Math.abs(ball.vy);
+  }
+}
+
+/** Ventana de contacto con la paleta, portada de game.js:122-128. */
+function hitsPaddle(ball: Ball, paddle: Paddle): boolean {
+  return (
+    ball.vy > 0 &&
+    ball.x + ball.w > paddle.x &&
+    ball.x < paddle.x + paddle.w &&
+    ball.y + ball.h >= paddle.y &&
+    ball.y + ball.h <= paddle.y + paddle.h + 8
+  );
+}
+
+/**
+ * Rebote en la paleta: el punto de impacto decide el ángulo de salida.
+ *
+ * La referencia solo invierte `vy` (game.js:130), con lo que la pelota nunca
+ * cambia de ángulo horizontal en toda la partida y el jugador solo decide si
+ * sigue viva, no adónde va. Aquí el offset respecto al centro mapea a
+ * ±MAX_BOUNCE_ANGLE, elevado a MIN_BOUNCE_ANGLE para que nunca salga vertical.
+ * La rapidez no cambia: solo la dirección.
+ */
+function paddleBounce(ball: Ball, paddle: Paddle, speed: number): void {
+  const ballCx = ball.x + ball.w / 2;
+  const paddleCx = paddle.x + paddle.w / 2;
+  const offset = clamp((ballCx - paddleCx) / (paddle.w / 2), -1, 1);
+
+  let angle = offset * MAX_BOUNCE_ANGLE;
+  if (Math.abs(angle) < MIN_BOUNCE_ANGLE) {
+    // Con offset exactamente 0 no hay signo que conservar: se usa el de `vx`,
+    // que mantiene el sentido en el que ya venía viajando la pelota.
+    const sign = offset === 0 ? (ball.vx >= 0 ? 1 : -1) : Math.sign(offset);
+    angle = sign * MIN_BOUNCE_ANGLE;
+  }
+
+  const mag = BALL_SPEED_BASE * speed;
+  ball.vx = mag * Math.sin(angle);
+  ball.vy = -mag * Math.cos(angle);
+  ball.y = paddle.y - ball.h; // fuera de la paleta, para no re-colisionar
+}
+
+/**
+ * Rebote en un bloque: se invierte el eje de MENOR penetración y la pelota se
+ * reposiciona justo fuera del bloque por ese eje.
+ *
+ * La referencia invierte siempre `vy` (game.js:141), así que una pelota que
+ * entra por el lateral de una columna la atraviesa horizontalmente sin que el
+ * rebote tenga sentido físico. Reposicionar, además, impide que el siguiente
+ * sub-paso vuelva a resolver el mismo contacto e invierta el eje dos veces.
+ */
+function resolveBlockBounce(ball: Ball, block: Block): void {
+  const overlapX = Math.min(
+    ball.x + ball.w - block.x,
+    block.x + block.w - ball.x,
+  );
+  const overlapY = Math.min(
+    ball.y + ball.h - block.y,
+    block.y + block.h - ball.y,
+  );
+
+  if (overlapX < overlapY) {
+    if (ball.x + ball.w / 2 < block.x + block.w / 2) {
+      ball.x = block.x - ball.w;
+      ball.vx = -Math.abs(ball.vx);
+    } else {
+      ball.x = block.x + block.w;
+      ball.vx = Math.abs(ball.vx);
+    }
+  } else {
+    if (ball.y + ball.h / 2 < block.y + block.h / 2) {
+      ball.y = block.y - ball.h;
+      ball.vy = -Math.abs(ball.vy);
+    } else {
+      ball.y = block.y + block.h;
+      ball.vy = Math.abs(ball.vy);
+    }
+  }
+}
+
+/**
+ * Avanza la pelota `dt` segundos resolviendo paredes, paleta y bloques.
+ *
+ * El movimiento se parte en sub-pasos de MAX_STEP_PX como mucho y las
+ * colisiones se resuelven en CADA uno: es lo que impide que a velocidades
+ * altas la pelota atraviese una fila entera sin tocarla. Se rompe **un bloque
+ * por sub-paso**, que es la traducción correcta del `break` del original
+ * (game.js:147) una vez subdividido el movimiento.
+ *
+ * No decide nada sobre vidas: si la pelota sale por abajo, deja de avanzar y
+ * quien llama comprueba `ball.y > VIEW_H`.
+ */
+function stepBall(
+  ball: Ball,
+  paddle: Paddle,
+  blocks: Block[],
+  speed: number,
+  dt: number,
+  onBlockBroken: (block: Block) => void,
+): void {
+  const distance = Math.hypot(ball.vx * dt, ball.vy * dt);
+  const subSteps = Math.max(1, Math.ceil(distance / MAX_STEP_PX));
+  const subDt = dt / subSteps;
+
+  for (let i = 0; i < subSteps; i++) {
+    ball.x += ball.vx * subDt;
+    ball.y += ball.vy * subDt;
+
+    bounceWalls(ball);
+    if (hitsPaddle(ball, paddle)) paddleBounce(ball, paddle, speed);
+
+    for (const block of blocks) {
+      if (!block.alive) continue;
+      if (!collideAABB(ball, block)) continue;
+      block.alive = false;
+      resolveBlockBounce(ball, block);
+      onBlockBroken(block);
+      break; // un bloque por sub-paso
+    }
+
+    if (ball.y > VIEW_H) return; // pelota perdida: no hay más que simular
+  }
 }
