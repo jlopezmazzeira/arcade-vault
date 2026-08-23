@@ -40,6 +40,7 @@
 - **Teclas `P` / `Escape` de pausa.** La pausa es estado declarativo de la plataforma, como en los tres juegos ya adaptados.
 - **Recortar o comprimir `fruits.png`.** Entra tal cual, sin pasada de optimización.
 - **`best` y `plays` derivados** de las puntuaciones reales. Siguen estáticos, por decisión de la SPEC 06.
+- **Reconciliar la siembra de `public.scores` con las puntuaciones reales.** Las 12 filas sembradas de `serpentina` van de 23 452 a 270 582 puntos, y con `10 + 2 × frutasComidas` harían falta unas 150 frutas —serpiente de 153 segmentos— para asomar por el último puesto. Una partida real se guarda correctamente, pero no aparece en el top 10 del aside ni en el top 12 de `/salon`. No es propio de este juego: `caida` está igual desde la SPEC 07, con una fila real de 216 puntos enterrada bajo su siembra. Rebajar o retirar la siembra toca la base de datos, así que va en su propia spec.
 - **Adaptar los 4 juegos aún mock** (`gloton`, `invasores`, `ranaria`, `duelo-pixel`).
 - **Tests.** Sigue sin haber runner en el proyecto.
 
@@ -245,7 +246,7 @@ Checklist booleano: cada ítem se responde con sí o no.
 ### Guardado y leaderboard
 
 - [ ] El modal de fin guarda la puntuación real en `public.scores` con `game_id = 'serpentina'`.
-- [ ] La puntuación guardada aparece en el aside de `/juegos/serpentina` y en la pestaña correspondiente de `/salon`.
+- [ ] La puntuación guardada aparece en el aside de `/juegos/serpentina` y en la pestaña correspondiente de `/salon`. **Se verifica por consulta a `public.scores`, no visualmente:** la siembra de la SPEC 06 sepulta cualquier puntuación real, y reconciliarla queda aplazado a su propia spec (ver "Fuera de alcance"). El criterio se da por cumplido si la fila existe con su `game_id`, `player_name` y `user_id` correctos.
 - [ ] Con sesión iniciada, la fila guardada lleva `user_id` y el `display_name` del perfil, ignorando el nombre del formulario.
 - [ ] Como invitado, la fila se guarda con `user_id null` y el nombre tecleado.
 - [ ] No se ha escrito ninguna consulta ni Server Action nueva: `saveScore` y `getTopScores` se usan tal cual.
@@ -312,6 +313,7 @@ Checklist booleano: cada ítem se responde con sí o no.
 - **Teclas `P` / `Escape` de pausa.**
 - **Optimizar, recortar o comprimir `fruits.png`.**
 - **`best` y `plays` derivados** de las puntuaciones reales: siguen estáticos, por decisión de la SPEC 06.
+- **Reconciliar la siembra de `public.scores` con las puntuaciones reales**, que hoy la sepultan por dos órdenes de magnitud (ver "Fuera de alcance").
 - **Adaptar los cuatro juegos aún mock**: `gloton`, `invasores`, `ranaria`, `duelo-pixel`.
 - **Tests.** El proyecto sigue sin runner.
 
