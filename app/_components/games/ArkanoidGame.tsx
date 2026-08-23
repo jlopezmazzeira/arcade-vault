@@ -6,6 +6,7 @@ import type {
   GameSnapshot,
   PlayableGameHandle,
   PlayableGameProps,
+  PlayableStatus,
 } from "./types";
 
 // ============================================================================
@@ -633,6 +634,39 @@ function createGame(
     for (const code of Object.keys(keys)) keys[code] = false;
   }
 
+  // ── Emisión de snapshot ──
+  //
+  // Este es el primer juego que cabe ENTERO en los campos nativos del HUD: las
+  // tres métricas que el original pinta en su canvas (Score, Nivel y las
+  // pelotitas de vidas) son `score`, `level` y `lives`. No hay `extra`.
+  //
+  // `status` solo vale "playing" o "gameover": al perder una vida la pelota se
+  // relanza en el acto, así que no hay estado intermedio que representar y
+  // "dead" no se usa.
+  let lastSnapshot: GameSnapshot | null = null;
+
+  /** Emite SOLO si cambió algún campo respecto al último. Nunca por frame. */
+  function emit(): void {
+    const status: PlayableStatus = gameOver ? "gameover" : "playing";
+    if (
+      lastSnapshot &&
+      lastSnapshot.score === score &&
+      lastSnapshot.lives === lives &&
+      lastSnapshot.level === level &&
+      lastSnapshot.status === status
+    ) {
+      return;
+    }
+    const prev = lastSnapshot;
+    const snap: GameSnapshot = { score, lives, level, status };
+    lastSnapshot = snap;
+    hooks.onSnapshot(snap);
+    // El fin de partida se avisa una sola vez, en el flanco.
+    if (gameOver && (!prev || prev.status !== "gameover")) {
+      hooks.onGameOver(score);
+    }
+  }
+
   // ── Update ──
   function update(dt: number): void {
     const speed = speedForLevel(level);
@@ -758,6 +792,7 @@ function createGame(
     // canvas, y un resize recrearía el búfer en blanco con el bucle parado.
     if (isActive()) update(dtMs / 1000);
     draw();
+    emit();
   }
 
   // ── Listeners de teclado ──
@@ -792,6 +827,7 @@ function createGame(
     resizeObserver = new ResizeObserver(() => resize());
     resizeObserver.observe(canvas);
 
+    emit(); // el HUD arranca con 0 puntos, 3 vidas y nivel 1
     rafId = requestAnimationFrame(loop);
   }
 
@@ -826,7 +862,9 @@ function createGame(
     loadLevel(1); // patrón 1, explosiones vacías y saque a velocidad inicial
     releaseKeys();
     lastTime = null;
+    lastSnapshot = null; // fuerza la re-emisión del snapshot inicial
     draw();
+    emit();
   }
 
   function setPaused(next: boolean): void {
