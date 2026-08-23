@@ -1,5 +1,7 @@
 "use client";
 
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -261,6 +263,7 @@ function createGame(
   // ajusta al tamaño en pantalla (× DPR) y el contexto se escala.
   let scaleX = 1;
   let scaleY = 1;
+  let resizeObserver: ResizeObserver | null = null;
 
   /** ¿Se puede simular? Ni en pausa ni con la partida acabada. */
   function isActive(): boolean {
@@ -395,15 +398,27 @@ function createGame(
     lastTime = null;
 
     resize(); // ajusta el búfer a la resolución real y pinta el primer frame
+    resizeObserver = new ResizeObserver(() => resize());
+    resizeObserver.observe(canvas);
+
     emit(); // el HUD arranca con 0 puntos y longitud 3
     rafId = requestAnimationFrame(loop);
   }
 
+  /**
+   * Apaga la partida entera. Es lo que corre en el cleanup del efecto de
+   * montaje, y de que lo deje todo apagado depende que el doble montaje de
+   * Strict Mode en desarrollo deje UNA sola partida viva.
+   */
   function stop(): void {
     running = false;
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
+    }
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
     }
   }
 
@@ -439,12 +454,75 @@ function createGame(
   return { start, stop, restart, setPaused };
 }
 
-// El componente React llega en el paso 2 del plan; estas referencias mantienen
-// el módulo coherente mientras tanto.
-export type {
-  GameController,
-  GameHooks,
-  PlayableGameHandle,
-  PlayableGameProps,
-};
-export { createGame };
+// ── Componente React ────────────────────────────────────────────────────────
+//
+// Ata el ciclo de vida del juego: el efecto de montaje crea la partida con
+// `createGame`, la arranca y —en el cleanup— la apaga entera (rAF y
+// ResizeObserver hoy; los listeners de teclado se suman en el paso 6). Los
+// callbacks entran por refs espejo para NO recrear el juego cuando cambian,
+// `paused` viaja en un efecto aparte, y `restart()` se expone como método
+// imperativo.
+
+const SnakeGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
+  function SnakeGame({ paused, onSnapshot, onGameOver }, ref) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const gameRef = useRef<GameController | null>(null);
+
+    // Refs espejo de los callbacks: el juego lee `.current` en cada emisión, así
+    // que un cambio de prop no obliga a recrear la partida.
+    const onSnapshotRef = useRef(onSnapshot);
+    const onGameOverRef = useRef(onGameOver);
+    useEffect(() => {
+      onSnapshotRef.current = onSnapshot;
+      onGameOverRef.current = onGameOver;
+    });
+
+    // Efecto de montaje: crea, arranca y (cleanup) detiene el juego. Sin
+    // dependencias, y el cleanup lo deja todo apagado, así que el doble montaje
+    // de Strict Mode en desarrollo deja UNA sola partida y una sola serpiente.
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const game = createGame(canvas, ctx, {
+        onSnapshot: (s) => onSnapshotRef.current(s),
+        onGameOver: (n) => onGameOverRef.current(n),
+      });
+      gameRef.current = game;
+      game.start();
+
+      return () => {
+        game.stop();
+        gameRef.current = null;
+      };
+    }, []);
+
+    // Propaga el control externo de pausa sin recrear el juego. Si `paused`
+    // fuera dependencia del efecto de montaje, cada pausa reiniciaría la partida.
+    useEffect(() => {
+      gameRef.current?.setPaused(paused);
+    }, [paused]);
+
+    // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
+    useImperativeHandle(
+      ref,
+      () => ({
+        restart: () => gameRef.current?.restart(),
+      }),
+      [],
+    );
+
+    return (
+      <canvas
+        ref={canvasRef}
+        width={VIEW_W}
+        height={VIEW_H}
+        aria-label="Serpentina — guía la serpiente de luz por la rejilla y come fruta"
+      />
+    );
+  },
+);
+
+export default SnakeGame;
