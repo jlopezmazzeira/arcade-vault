@@ -57,6 +57,10 @@ const SCORE_STEP = 2;
 
 const FRUIT_SCALE = 0.9; // la fruta ocupa el 90 % de su casilla
 
+/** Ruta pública del PNG copiado. Absoluta: la página se sirve desde
+ *  /juegos/serpentina/jugar, así que una ruta relativa rompería. */
+const SPRITE_SRC = "/games/snake/fruits.png";
+
 /** Tope de `dt`: al volver de una pestaña en segundo plano la serpiente no
  *  ejecuta una ráfaga de pasos, como mucho uno extra. */
 const DT_CAP = 50; // ms
@@ -122,6 +126,69 @@ function pickFruitCell(snake: readonly Cell[]): Cell | null {
   }
   if (free.length === 0) return null;
   return free[Math.floor(Math.random() * free.length)];
+}
+
+// ── Atlas de frutas ─────────────────────────────────────────────────────────
+//
+// Portado 1:1 de references/source-assets/snake-assets/sprites.js: las 22
+// entradas de la fila y = 136 de fruits.png (hoja de 3790×442). Todas miden 160
+// de alto y entre 110 y 170 de ancho, así que NO son cuadradas — de ahí que el
+// dibujo conserve la relación de aspecto en vez de estirarlas a la casilla.
+//
+// El `window.SPRITE_ATLAS` del original desaparece: esto es una constante del
+// módulo, no estado global, y nada escribe en `window`.
+
+/** Recorte dentro del atlas: origen y tamaño en px de la hoja. */
+type FruitRect = { sx: number; sy: number; sw: number; sh: number };
+
+const FRUITS: readonly FruitRect[] = [
+  { sx: 34, sy: 136, sw: 110, sh: 160 }, // banana
+  { sx: 186, sy: 136, sw: 150, sh: 160 }, // orange
+  { sx: 378, sy: 136, sw: 110, sh: 160 }, // grape
+  { sx: 540, sy: 136, sw: 130, sh: 160 }, // garlic
+  { sx: 712, sy: 136, sw: 130, sh: 160 }, // eggplant
+  { sx: 894, sy: 136, sw: 110, sh: 160 }, // strawberry
+  { sx: 1066, sy: 136, sw: 110, sh: 160 }, // cherry
+  { sx: 1228, sy: 136, sw: 130, sh: 160 }, // carrot
+  { sx: 1400, sy: 136, sw: 130, sh: 160 }, // mushroom
+  { sx: 1582, sy: 136, sw: 110, sh: 160 }, // broccoli
+  { sx: 1734, sy: 136, sw: 150, sh: 160 }, // watermelon
+  { sx: 1906, sy: 136, sw: 150, sh: 160 }, // pepper
+  { sx: 2068, sy: 136, sw: 170, sh: 160 }, // kiwi
+  { sx: 2250, sy: 136, sw: 140, sh: 160 }, // lemon
+  { sx: 2432, sy: 136, sw: 130, sh: 160 }, // peach
+  { sx: 2604, sy: 136, sw: 130, sh: 160 }, // peanut
+  { sx: 2786, sy: 136, sw: 110, sh: 160 }, // apple
+  { sx: 2948, sy: 136, sw: 130, sh: 160 }, // tomato
+  { sx: 3110, sy: 136, sw: 150, sh: 160 }, // berries
+  { sx: 3302, sy: 136, sw: 110, sh: 160 }, // grapes2
+  { sx: 3454, sy: 136, sw: 150, sh: 160 }, // pineapple
+  { sx: 3637, sy: 136, sw: 130, sh: 160 }, // melon
+];
+
+/**
+ * Arranca la carga del atlas y devuelve la `Image` en vuelo.
+ *
+ * Función pura: no guarda nada. Quien la llama —la fábrica `createGame`— se
+ * queda con la hoja y con el handle de la imagen, y puede anular su `onload` al
+ * desmontar para que una carga en vuelo no toque un juego muerto.
+ *
+ * A diferencia de `ArkanoidGame`, la hoja NO se copia a un canvas intermedio:
+ * allí es lo que hacía el original y los sprites son pixel art diminuto; aquí
+ * copiar 3790×442 costaría ~6,7 MB de RAM para dibujar UN recorte por frame.
+ */
+function loadFruitSheet(
+  src: string,
+  onReady: (sheet: HTMLImageElement) => void,
+): HTMLImageElement {
+  const img = new Image();
+  img.onload = () => onReady(img);
+  img.onerror = () => {
+    // No es fatal: sin hoja, la fruta se dibuja como rombo y se sigue jugando.
+    console.error(`No se pudo cargar el atlas de frutas: ${src}`);
+  };
+  img.src = src;
+  return img;
 }
 
 // ── Teclado ─────────────────────────────────────────────────────────────────
@@ -197,6 +264,28 @@ function drawFruitFallback(ctx: CanvasRenderingContext2D, cell: Cell): void {
   ctx.lineTo(cx - r, cy);
   ctx.closePath();
   ctx.fill();
+}
+
+/**
+ * Fruta desde el atlas, centrada en su casilla y SIN deformar.
+ *
+ * El factor sale del lado mayor del recorte, no de cada eje por separado: con
+ * recortes de 110×160 a 170×160 metidos en una casilla cuadrada de 25 px,
+ * escalar por eje los estiraría. Así el lado mayor ocupa el 90 % de la casilla
+ * y el menor lo que le corresponda.
+ */
+function drawFruitSprite(
+  ctx: CanvasRenderingContext2D,
+  sheet: HTMLImageElement,
+  rect: FruitRect,
+  cell: Cell,
+): void {
+  const k = (FRUIT_SCALE * CELL) / Math.max(rect.sw, rect.sh);
+  const w = rect.sw * k;
+  const h = rect.sh * k;
+  const x = cell.col * CELL + (CELL - w) / 2;
+  const y = cell.row * CELL + (CELL - h) / 2;
+  ctx.drawImage(sheet, rect.sx, rect.sy, rect.sw, rect.sh, x, y, w, h);
 }
 
 /** Los dos ojos de la cabeza, colocados según hacia dónde mira. */
@@ -283,7 +372,10 @@ function createGame(
   /** Cola de UN solo giro por tick: la defensa contra el suicidio por doble
    *  pulsación. Dos teclas en el mismo tick no pueden invertir la marcha. */
   let queuedDir: Dir | null = null;
-  let fruit: Cell | null = pickFruitCell(snake);
+  let fruit: Cell | null = null;
+  /** Índice en FRUITS del sprite de la fruta en juego. Se sortea al aparecer:
+   *  las 22 frutas valen lo mismo, la variedad es solo visual. */
+  let fruitSprite = 0;
 
   let fruitsEaten = 0;
   let score = 0;
@@ -304,6 +396,24 @@ function createGame(
   let scaleX = 1;
   let scaleY = 1;
   let resizeObserver: ResizeObserver | null = null;
+
+  // El atlas: `sheet` es la hoja ya cargada y `sheetImg` el handle, que se
+  // conserva solo para poder anular su `onload` en `stop()` si la carga sigue
+  // en vuelo al desmontar. A diferencia de `bloque-buster` NO hay bandera
+  // `ready`: el juego no espera a la imagen, arranca con el rombo de reserva.
+  let sheet: HTMLImageElement | null = null;
+  let sheetImg: HTMLImageElement | null = null;
+
+  /**
+   * Coloca la siguiente fruta en una casilla libre y le sortea sprite.
+   * Devuelve `false` si la rejilla está llena: no hay dónde ponerla.
+   */
+  function spawnFruit(): boolean {
+    fruit = pickFruitCell(snake);
+    if (!fruit) return false;
+    fruitSprite = Math.floor(Math.random() * FRUITS.length);
+    return true;
+  }
 
   /** ¿Se puede simular? Ni en pausa ni con la partida acabada. */
   function isActive(): boolean {
@@ -440,11 +550,10 @@ function createGame(
       fruitsEaten++;
       score += SCORE_BASE + SCORE_STEP * fruitsEaten;
       tickMs = Math.max(TICK_MIN_MS, tickMs - TICK_STEP_MS);
-      fruit = pickFruitCell(snake);
       // Rejilla llena: no queda casilla libre donde poner la siguiente fruta.
       // Prácticamente inalcanzable (768 casillas), pero deja el generador
       // acotado en vez de dejarlo buscando hueco para siempre.
-      if (!fruit) {
+      if (!spawnFruit()) {
         die();
         return;
       }
@@ -461,7 +570,12 @@ function createGame(
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     drawGrid(ctx);
-    if (fruit) drawFruitFallback(ctx, fruit);
+    if (fruit) {
+      // Mientras la hoja no esté cargada —o si falló— entra el rombo de
+      // reserva: la partida es jugable sin la imagen.
+      if (sheet) drawFruitSprite(ctx, sheet, FRUITS[fruitSprite], fruit);
+      else drawFruitFallback(ctx, fruit);
+    }
     drawSnake(ctx, snake, dir);
   }
 
@@ -511,6 +625,12 @@ function createGame(
     paused = false;
     lastTime = null;
 
+    // La carga la posee la fábrica: la hoja es suya, no del módulo, y `stop()`
+    // puede desactivar el callback si sigue en vuelo.
+    sheetImg = loadFruitSheet(SPRITE_SRC, (loaded) => {
+      sheet = loaded;
+    });
+
     window.addEventListener("keydown", onKeyDown);
 
     resize(); // ajusta el búfer a la resolución real y pinta el primer frame
@@ -536,6 +656,12 @@ function createGame(
       resizeObserver.disconnect();
       resizeObserver = null;
     }
+    // Una carga en vuelo no debe tocar un juego ya desmontado.
+    if (sheetImg) {
+      sheetImg.onload = null;
+      sheetImg.onerror = null;
+      sheetImg = null;
+    }
     window.removeEventListener("keydown", onKeyDown);
     queuedDir = null;
   }
@@ -545,7 +671,7 @@ function createGame(
     snake = buildSnake();
     dir = { ...START_DIR };
     queuedDir = null;
-    fruit = pickFruitCell(snake);
+    spawnFruit();
     fruitsEaten = 0;
     score = 0;
     tickMs = TICK_START_MS;
@@ -569,6 +695,9 @@ function createGame(
       acc = 0;
     }
   }
+
+  // Primera fruta en el tablero antes del primer frame.
+  spawnFruit();
 
   return { start, stop, restart, setPaused };
 }
