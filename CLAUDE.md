@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Development follows **spec-driven design** (see `README.md`): write a spec with the `/spec` skill, then implement it with `/spec-impl`. These skills come from [Klerith/fernando-skills](https://github.com/Klerith/fernando-skills), installed via `npx skills@latest add Klerith/fernando-skills`.
 
+Para **juegos**, ese flujo va precedido del subagente `game-planner`, que es quien decide qué juego entra a continuación. Ver `## Agentes`.
+
 ## Commands
 
 ```bash
@@ -22,6 +24,25 @@ npm run lint    # ESLint (flat config, eslint-config-next core-web-vitals + type
 No test runner is configured yet.
 ## Skills
 Always use /frontend-design when you need to create HTML designs
+
+## Agentes
+
+**Este proyecto usa el subagente `game-planner`** (`.claude/agents/game-planner.md`), en uso
+activo desde el 2026-09-03. Es el primer paso del flujo para añadir un juego:
+
+**`game-planner` → `/spec-game` → `/spec-impl`**
+
+- `game-planner` decide **qué** juego entra a continuación y por qué: analiza el catálogo
+  (`data/games.ts`), qué ids siguen en mock frente a `app/_components/games/registry.ts`, y
+  evalúa los candidatos por encaje con el contrato de plataforma, competitividad del score y
+  equilibrio de categorías. Termina en un veredicto y un handoff textual; **no escribe specs
+  ni código**.
+- Su memoria de rondas anteriores —lo propuesto, aceptado, descartado e implementado— vive en
+  `references/game-planner/memoria.md`, el único fichero que escribe. Está versionada en git:
+  si tocas juegos, léela antes de proponer uno, porque un juego ya descartado no deja ninguna
+  otra huella en el repo.
+- **No lo invoques para portar un juego ya decidido** — para eso se entra directamente por
+  `/spec-game <juego>`.
 
 ## Stack & critical version notes
 
