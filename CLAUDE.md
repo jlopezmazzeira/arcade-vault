@@ -44,6 +44,24 @@ activo desde el 2026-09-03. Es el primer paso del flujo para añadir un juego:
 - **No lo invoques para portar un juego ya decidido** — para eso se entra directamente por
   `/spec-game <juego>`.
 
+**El subagente `agent-jam`** (`.claude/agents/agent-jam.md`) es la **vía rápida y paralela**
+a ese flujo, para explorar sin comprometer el catálogo:
+
+**`agent-jam <tema>` → revisión manual → mover a `specs/NN-…` → `/spec-impl`**
+
+- Recibe **un tema** (p. ej. «juegos de laberinto de los 80»), elige el juego que mejor lo
+  representa con los mismos tres criterios que `game-planner`, y escribe **dos specs completas
+  de un tirón, sin preguntar nada**: `01` el puerto jugable y `02` un incremento que depende
+  del `01`.
+- Escribe **solo** dentro de `specs/game-jam/<game-id>/`. No toca la serie numerada de
+  `specs/`, ni el código, ni `references/game-planner/memoria.md` (esa es de `game-planner`).
+  Sus specs son **candidatas**: para promover una hay que moverla a `specs/NN-…` a mano.
+- Como no pregunta, toda decisión que `/spec-game` consultaría queda registrada con su motivo
+  en la sección `## Decisiones` de la spec. Ahí es donde hay que revisarlo.
+- **No sustituye a `game-planner` + `/spec-game`** para el catálogo real: aquel deja memoria
+  de lo descartado y esta skill negocia la spec contigo. `agent-jam` es para explorar un tema
+  y leerlo en frío.
+
 ## Stack & critical version notes
 
 This is **Next.js 16.2.10** with the App Router, **React 19.2**, and **Tailwind CSS v4** — all newer than typical training data. `AGENTS.md` requires reading the relevant guide under `node_modules/next/dist/docs/` before writing code. The v16 breaking-change guide is `node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`. Key differences from older Next.js that break familiar patterns:
