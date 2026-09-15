@@ -141,14 +141,18 @@ type Palette = {
   background: string;
   /** Rejilla tenue sobre todo el lienzo. */
   grid: string;
-  /** Relleno del tablero de juego. */
+  /** Relleno del tablero de juego. Transparente en `neon` y en `retro`. */
   boardTint: string;
   /** Borde del tablero y del recuadro de SIGUIENTE. */
   boardBorder: string;
   /** Rótulo "SIGUIENTE". */
   label: string;
-  /** Barra de brillo superior del bloque. No se tiñe en ninguna skin. */
+  /** Macizo con barra (`clasico`), macizo pleno (`retro`) o hueco (`neon`). */
+  cellStyle: "solid" | "flat" | "outline";
+  /** Barra de brillo superior del bloque. Solo en `solid`; no se tiñe. */
   cellHighlight: string;
+  /** Alpha del relleno interior. Solo en `outline`. */
+  cellFillAlpha: number;
   /** Los siete tetrominós, de I a L. */
   pieces: Record<PieceType, string>;
   /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
@@ -164,7 +168,9 @@ const clasico: Palette = {
   boardTint: "rgba(0, 245, 255, 0.03)",
   boardBorder: "rgba(0, 245, 255, 0.25)",
   label: "#8a8fb5",
+  cellStyle: "solid",
   cellHighlight: "rgba(255,255,255,0.12)",
+  cellFillAlpha: 1, // sin uso en `solid`
   pieces: {
     1: "#4dd0e1", // I
     2: "#ffd54f", // O
@@ -177,47 +183,59 @@ const clasico: Palette = {
   glow: 0,
 };
 
-// Saturada y con halo. Las piezas I, O y S se anclan a los tokens --cyan,
-// --yellow y --green de app/globals.css, los mismos de los que ya tira `rocas`:
-// las tres skins deben leerse como una familia. El fondo es el de la `neon` de
-// AsteroidsGame.tsx, por lo mismo.
+// Tubo de neón sobre negro puro: el bloque se ve por su CONTORNO, no por su
+// masa. Muestreada píxel a píxel de la captura de referencia —de ahí salen T, Z
+// y L; las otras cuatro se derivan con la misma saturación y luminosidad—. El
+// tablero no se tiñe: lo delimita su borde.
 const neon: Palette = {
-  background: "#05010f",
-  grid: "rgba(0, 245, 255, 0.16)",
-  boardTint: "rgba(0, 245, 255, 0.10)",
-  boardBorder: "rgba(0, 245, 255, 0.32)",
-  label: "#7ad9ff",
-  cellHighlight: "rgba(255,255,255,0.12)",
+  background: "#000000",
+  grid: "rgba(255, 255, 255, 0.07)",
+  // Transparente, no negro: el tablero se pinta DESPUÉS de la rejilla, y un
+  // tinte opaco la borraría justo dentro del tablero.
+  boardTint: "rgba(0, 0, 0, 0)",
+  boardBorder: "#292b39",
+  label: "#8a8fb5",
+  cellStyle: "outline",
+  cellHighlight: "rgba(255,255,255,0.12)", // sin uso en `outline`
+  cellFillAlpha: 0.15,
   pieces: {
     1: "#00f5ff", // I — token --cyan
-    2: "#f5ff00", // O — token --yellow
-    3: "#c04dff", // T
-    4: "#00ff88", // S — token --green
-    5: "#ff3d6e", // Z
-    6: "#4d8bff", // J
-    7: "#ff9d00", // L
+    2: "#ffe23d", // O
+    3: "#db36f3", // T — medido en la referencia
+    4: "#2bff88", // S
+    5: "#ff1849", // Z — medido en la referencia
+    6: "#3d7bff", // J
+    7: "#ff8e2d", // L — medido en la referencia
   },
-  glow: 8,
+  // Se multiplica por la escala del lienzo antes de dibujar: `shadowBlur` se
+  // aplica en píxeles del búfer y la transformación del canvas NO lo escala.
+  glow: 18,
 };
 
-// Fósforo ámbar de monitor CRT, sin halo. Un monitor ámbar no tiene siete
-// colores: tiene siete niveles de excitación del fósforo, y por eso la rampa va
-// de #fff0c9 a #c2822d separando las piezas por brillo, no por matiz.
+// Siete colores SATURADOS de color pleno sobre azul-pizarra, sin halo y sin
+// barra de brillo: `cellStyle: "flat"`. Lo que separa esta piel de `clasico` es
+// la saturación —0,74 frente a 0,49—, no el fondo ni el brillo: las tres
+// paletas anteriores (ámbar monocromo, matices apagados y pastel) acababan a
+// una distancia RGB media de 24 de `clasico`, es decir, siendo `clasico`. La
+// junta entre bloques contiguos la marcan los 2 px de fondo que dejan los
+// márgenes de 1 px.
 const retro: Palette = {
-  background: "#1a1206",
-  grid: "rgba(255, 176, 0, 0.13)",
-  boardTint: "rgba(255, 176, 0, 0.08)",
-  boardBorder: "rgba(255, 176, 0, 0.35)",
-  label: "#c08a2e",
-  cellHighlight: "rgba(255,255,255,0.12)",
+  background: "#191b24",
+  grid: "rgba(255, 255, 255, 0.04)",
+  boardTint: "rgba(0, 0, 0, 0)", // transparente, por lo mismo que en `neon`
+  boardBorder: "#292b39",
+  label: "#8a8fb5",
+  cellStyle: "flat",
+  cellHighlight: "rgba(255,255,255,0.12)", // sin uso en `flat`
+  cellFillAlpha: 1, // sin uso en `flat`
   pieces: {
-    1: "#fff0c9", // I
-    2: "#ffd98a", // O
-    3: "#f0b24a", // T
-    4: "#d99a3c", // S
-    5: "#c98a2e", // Z
-    6: "#c2822d", // J
-    7: "#ffc266", // L
+    1: "#19c3c9", // I
+    2: "#e8bb2a", // O
+    3: "#b968e8", // T
+    4: "#3fbf55", // S
+    5: "#f2564a", // Z
+    6: "#4f8bf5", // J
+    7: "#e8861a", // L
   },
   glow: 0,
 };
@@ -460,6 +478,8 @@ function createInitialState(): GameState {
 function drawCell(
   ctx: CanvasRenderingContext2D,
   palette: Palette,
+  /** `shadowBlur` efectivo, ya multiplicado por la escala del lienzo. */
+  glowBlur: number,
   originX: number,
   originY: number,
   col: number,
@@ -473,15 +493,45 @@ function drawCell(
   const y = originY + row * size;
   const color = palette.pieces[type];
   ctx.globalAlpha = alpha;
-  withGlow(ctx, palette.glow, color);
+
+  if (palette.cellStyle === "outline") {
+    // Celda hueca: relleno tenue del propio color y, encima, el trazo pleno. El
+    // bloque se lee por su contorno, así que NO lleva barra de brillo: taparía
+    // justo la arista superior, que es la que hace el trabajo.
+    ctx.globalAlpha = alpha * palette.cellFillAlpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    // Centrado en x+2.5: el trazo ocupa de x+1 a x+4 y nunca invade la celda
+    // vecina, de modo que dos bloques contiguos siempre muestran su junta.
+    const inset = 2.5;
+    const side = size - inset * 2;
+    // Dos pasadas: la primera con halo —que sangra también HACIA DENTRO y da el
+    // degradado del interior, medido en la referencia—, la segunda nítida encima
+    // para recuperar el núcleo del tubo.
+    withGlow(ctx, glowBlur, color);
+    ctx.strokeRect(x + inset, y + inset, side, side);
+    clearGlow(ctx, glowBlur);
+    ctx.strokeRect(x + inset, y + inset, side, side);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  // Bloque macizo: relleno pleno con margen de 1 px por lado, de modo que entre
+  // dos bloques contiguos siempre quedan 2 px de fondo.
+  withGlow(ctx, glowBlur, color);
   ctx.fillStyle = color;
   ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
-  // El brillo superior no lleva halo: es una señal de volumen, no de color, y
-  // con halo se comería la junta entre dos bloques contiguos.
-  clearGlow(ctx, palette.glow);
-  // Brillo superior: da volumen al bloque, como en el original.
-  ctx.fillStyle = palette.cellHighlight;
-  ctx.fillRect(x + 1, y + 1, size - 2, 4);
+  clearGlow(ctx, glowBlur);
+  if (palette.cellStyle === "solid") {
+    // Brillo superior: da volumen al bloque, como en el original. No lleva halo
+    // —es una señal de volumen, no de color— y en `flat` no se pinta: sobre
+    // pastel contrasta 1.05:1 con la propia pieza y lee como rayado.
+    ctx.fillStyle = palette.cellHighlight;
+    ctx.fillRect(x + 1, y + 1, size - 2, 4);
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -672,7 +722,7 @@ function createGame(
   }
 
   // ── Draw ──
-  function drawBoard(palette: Palette): void {
+  function drawBoard(palette: Palette, glowBlur: number): void {
     ctx.fillStyle = palette.boardTint;
     ctx.fillRect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H);
     ctx.strokeStyle = palette.boardBorder;
@@ -684,6 +734,7 @@ function createGame(
         drawCell(
           ctx,
           palette,
+          glowBlur,
           BOARD_X,
           BOARD_Y,
           c,
@@ -695,7 +746,7 @@ function createGame(
     }
   }
 
-  function drawPiece(palette: Palette): void {
+  function drawPiece(palette: Palette, glowBlur: number): void {
     const { shape, x, y } = state.current;
     // Ghost primero: la pieza real se pinta encima cuando se solapan.
     const gy = ghostY(state);
@@ -704,6 +755,7 @@ function createGame(
         drawCell(
           ctx,
           palette,
+          glowBlur,
           BOARD_X,
           BOARD_Y,
           x + c,
@@ -719,6 +771,7 @@ function createGame(
         drawCell(
           ctx,
           palette,
+          glowBlur,
           BOARD_X,
           BOARD_Y,
           x + c,
@@ -730,7 +783,7 @@ function createGame(
     }
   }
 
-  function drawPanel(palette: Palette): void {
+  function drawPanel(palette: Palette, glowBlur: number): void {
     ctx.font = labelFont;
     ctx.fillStyle = palette.label;
     ctx.textAlign = "center";
@@ -755,6 +808,7 @@ function createGame(
         drawCell(
           ctx,
           palette,
+          glowBlur,
           PREVIEW_X,
           PREVIEW_Y,
           offX + c,
@@ -790,10 +844,14 @@ function createGame(
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
     ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    // `shadowBlur` se aplica en píxeles del búfer, así que hay que escalarlo a
+    // mano: si no, el halo mide una fracción distinta de celda según el tamaño
+    // en pantalla y el DPR. Se calcula una vez por frame, no por celda.
+    const glowBlur = palette.glow * scaleX;
     drawGrid(ctx, palette);
-    drawBoard(palette);
-    drawPiece(palette);
-    drawPanel(palette);
+    drawBoard(palette, glowBlur);
+    drawPiece(palette, glowBlur);
+    drawPanel(palette, glowBlur);
   }
 
   // ── Bucle ──
