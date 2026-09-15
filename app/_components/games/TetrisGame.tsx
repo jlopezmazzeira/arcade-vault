@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
-import type { SkinId } from "./skins";
+import { DEFAULT_SKIN, type SkinId } from "./skins";
 import styles from "./TetrisGame.module.css";
 import type {
   GameSnapshot,
@@ -48,16 +48,6 @@ type GameState = {
 const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30; // px lógicos por celda
-
-const COLORS: Record<PieceType, string> = {
-  1: "#4dd0e1", // I — cian
-  2: "#ffd54f", // O — amarillo
-  3: "#ba68c8", // T — morado
-  4: "#81c784", // S — verde
-  5: "#e57373", // Z — rojo
-  6: "#90caf9", // J — azul pálido
-  7: "#ffb74d", // L — naranja
-};
 
 const PIECES: Record<PieceType, Cell[][]> = {
   1: [
@@ -137,13 +127,6 @@ const PREVIEW_SIZE = 4 * PREVIEW_CELL;
 const PREVIEW_X = PANEL_X + (PANEL_W - PREVIEW_SIZE) / 2;
 const PREVIEW_Y = 250;
 const PREVIEW_LABEL_Y = PREVIEW_Y - 26;
-
-const BACKGROUND_COLOR = "#000";
-const GRID_COLOR = "rgba(0, 245, 255, 0.08)";
-const BOARD_TINT = "rgba(0, 245, 255, 0.03)";
-const BOARD_BORDER = "rgba(0, 245, 255, 0.25)";
-const LABEL_COLOR = "#8a8fb5"; // --ink-dim
-const CELL_HIGHLIGHT = "rgba(255,255,255,0.12)";
 
 // ── Paletas de skin ─────────────────────────────────────────────────────────
 //
@@ -240,6 +223,26 @@ const retro: Palette = {
 };
 
 const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
+
+/** Halo: solo `neon` lo pide. Con `glow` a 0 no se toca `shadowBlur` siquiera. */
+function withGlow(
+  ctx: CanvasRenderingContext2D,
+  glow: number,
+  color: string,
+): void {
+  if (glow > 0) {
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = color;
+  }
+}
+
+/** Contrapartida de `withGlow`: el brillo del bloque nunca va con halo. */
+function clearGlow(ctx: CanvasRenderingContext2D, glow: number): void {
+  if (glow > 0) {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+}
 
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pieza no cae de golpe. */
 const DT_CAP = 50; // ms
@@ -456,6 +459,7 @@ function createInitialState(): GameState {
  */
 function drawCell(
   ctx: CanvasRenderingContext2D,
+  palette: Palette,
   originX: number,
   originY: number,
   col: number,
@@ -467,18 +471,23 @@ function drawCell(
   if (!type) return;
   const x = originX + col * size;
   const y = originY + row * size;
+  const color = palette.pieces[type];
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = COLORS[type];
+  withGlow(ctx, palette.glow, color);
+  ctx.fillStyle = color;
   ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+  // El brillo superior no lleva halo: es una señal de volumen, no de color, y
+  // con halo se comería la junta entre dos bloques contiguos.
+  clearGlow(ctx, palette.glow);
   // Brillo superior: da volumen al bloque, como en el original.
-  ctx.fillStyle = CELL_HIGHLIGHT;
+  ctx.fillStyle = palette.cellHighlight;
   ctx.fillRect(x + 1, y + 1, size - 2, 4);
   ctx.globalAlpha = 1;
 }
 
 /** Rejilla tenue sobre TODO el lienzo, alineada a la celda de 30 px. */
-function drawGrid(ctx: CanvasRenderingContext2D): void {
-  ctx.strokeStyle = GRID_COLOR;
+function drawGrid(ctx: CanvasRenderingContext2D, palette: Palette): void {
+  ctx.strokeStyle = palette.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = BLOCK; x < VIEW_W; x += BLOCK) {
@@ -524,6 +533,13 @@ function createGame(
   let dropAccum = 0;
   let lastTime: number | null = null;
   let rafId: number | null = null;
+
+  // ── Piel activa ──
+  // Se lee en el momento de dibujar y se pasa a cada función de dibujo, nunca
+  // se captura al construir el estado: así una pieza ya fijada en el tablero
+  // antes de cambiar de piel se repinta con la nueva. Arranca en la piel por
+  // defecto y `restart()` no la toca: morir no devuelve a `clasico`.
+  let palette: Palette = PALETTES[DEFAULT_SKIN];
 
   // El canvas se dibuja SIEMPRE en coordenadas lógicas 800×600; el búfer real
   // se ajusta al tamaño en pantalla (× DPR) y el contexto se escala, de modo
@@ -655,21 +671,30 @@ function createGame(
   }
 
   // ── Draw ──
-  function drawBoard(): void {
-    ctx.fillStyle = BOARD_TINT;
+  function drawBoard(palette: Palette): void {
+    ctx.fillStyle = palette.boardTint;
     ctx.fillRect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H);
-    ctx.strokeStyle = BOARD_BORDER;
+    ctx.strokeStyle = palette.boardBorder;
     ctx.lineWidth = 2;
     ctx.strokeRect(BOARD_X + 1, BOARD_Y + 1, BOARD_W - 2, BOARD_H - 2);
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        drawCell(ctx, BOARD_X, BOARD_Y, c, r, state.board[r][c], BLOCK);
+        drawCell(
+          ctx,
+          palette,
+          BOARD_X,
+          BOARD_Y,
+          c,
+          r,
+          state.board[r][c],
+          BLOCK,
+        );
       }
     }
   }
 
-  function drawPiece(): void {
+  function drawPiece(palette: Palette): void {
     const { shape, x, y } = state.current;
     // Ghost primero: la pieza real se pinta encima cuando se solapan.
     const gy = ghostY(state);
@@ -677,6 +702,7 @@ function createGame(
       for (let c = 0; c < shape[r].length; c++) {
         drawCell(
           ctx,
+          palette,
           BOARD_X,
           BOARD_Y,
           x + c,
@@ -689,19 +715,28 @@ function createGame(
     }
     for (let r = 0; r < shape.length; r++) {
       for (let c = 0; c < shape[r].length; c++) {
-        drawCell(ctx, BOARD_X, BOARD_Y, x + c, y + r, shape[r][c], BLOCK);
+        drawCell(
+          ctx,
+          palette,
+          BOARD_X,
+          BOARD_Y,
+          x + c,
+          y + r,
+          shape[r][c],
+          BLOCK,
+        );
       }
     }
   }
 
-  function drawPanel(): void {
+  function drawPanel(palette: Palette): void {
     ctx.font = labelFont;
-    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillStyle = palette.label;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
     ctx.fillText("SIGUIENTE", PANEL_X + PANEL_W / 2, PREVIEW_LABEL_Y);
 
-    ctx.strokeStyle = BOARD_BORDER;
+    ctx.strokeStyle = palette.boardBorder;
     ctx.lineWidth = 1;
     ctx.strokeRect(
       PREVIEW_X + 0.5,
@@ -718,6 +753,7 @@ function createGame(
       for (let c = 0; c < shape[r].length; c++) {
         drawCell(
           ctx,
+          palette,
           PREVIEW_X,
           PREVIEW_Y,
           offX + c,
@@ -751,12 +787,12 @@ function createGame(
   function draw(): void {
     // Base: mapea las coordenadas lógicas 800×600 al búfer real del canvas.
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = BACKGROUND_COLOR;
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawGrid(ctx);
-    drawBoard();
-    drawPiece();
-    drawPanel();
+    drawGrid(ctx, palette);
+    drawBoard(palette);
+    drawPiece(palette);
+    drawPanel(palette);
   }
 
   // ── Bucle ──
