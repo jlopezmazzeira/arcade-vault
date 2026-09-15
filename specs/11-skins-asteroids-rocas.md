@@ -1,6 +1,6 @@
 # SPEC 11 — Skins clásico, neón y retro de Asteroids (`rocas`)
 
-> **Status:** Draft
+> **Status:** Approved
 > **Depends on:** SPEC 10 (contrato de skins), SPEC 05 (contrato de juego y registro), SPEC 07 (extracción de `types.ts`)
 > **Date:** 2026-09-05
 > **Objective:** Dar a `rocas` las tres skins obligatorias extrayendo antes sus colores literales a un registro de paletas, sin que la skin `clasico` cambie ni un píxel.

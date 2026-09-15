@@ -1,6 +1,6 @@
 # SPEC 10 — Contrato de skins de plataforma (`clasico`, `neon`, `retro`)
 
-> **Status:** Draft
+> **Status:** Approved
 > **Depends on:** SPEC 05 (contrato de juego y registro), SPEC 07 (extracción de `types.ts` y HUD condicional)
 > **Date:** 2026-09-05
 > **Objective:** Crear la pieza compartida que permite que cualquier juego adaptado se vista con las tres skins obligatorias, con selector en el HUD y preferencia persistida por juego en el navegador.
