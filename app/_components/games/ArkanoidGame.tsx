@@ -322,13 +322,42 @@ function spriteRect(name: SpriteName): SpriteRect {
 }
 
 /**
+ * Halo: solo `neon` lo pide, y su color es el TINTE de la superficie que se va
+ * a pintar. Con `glow` a 0 no se toca `shadowBlur` siquiera.
+ *
+ * El halo solo suma brillo alrededor del núcleo del sprite: los ratios de
+ * contraste de la spec están calculados sobre el color del núcleo, que es lo
+ * conservador.
+ */
+function applyGlow(
+  ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  key: SpriteTintKey,
+): void {
+  if (palette.glow > 0 && palette.tints) {
+    ctx.shadowBlur = palette.glow;
+    ctx.shadowColor = palette.tints[key];
+  }
+}
+
+/** Contrapartida de `applyGlow`: el chrome del canvas no hereda el halo. */
+function clearGlow(ctx: CanvasRenderingContext2D, palette: Palette): void {
+  if (palette.glow > 0) {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+}
+
+/**
  * Dibuja un sprite por nombre. A diferencia del original
  * (spritesheet.js:56-66), el sheet entra por parámetro en vez de leerse de una
- * variable de módulo: así dos partidas no comparten nada.
+ * variable de módulo: así dos partidas no comparten nada. La hoja y la paleta
+ * son las ACTIVAS: cambiar de skin solo cambia lo que se le pasa aquí.
  */
 function drawSprite(
   ctx: CanvasRenderingContext2D,
   sheet: Spritesheet,
+  palette: Palette,
   name: SpriteName,
   x: number,
   y: number,
@@ -336,20 +365,30 @@ function drawSprite(
   h: number,
 ): void {
   const sp = spriteRect(name);
+  const key: SpriteTintKey =
+    name === "paddle" || name === "ball"
+      ? name
+      : (name.slice(6) as BlockColor);
+  applyGlow(ctx, palette, key);
   ctx.drawImage(sheet, sp.sx, sp.sy, sp.sw, sp.sh, x, y, w, h);
+  clearGlow(ctx, palette);
 }
 
 /** Dibuja un frame suelto de animación (spritesheet.js:51-54). */
 function drawFrame(
   ctx: CanvasRenderingContext2D,
   sheet: Spritesheet,
+  palette: Palette,
+  key: SpriteTintKey,
   frame: SpriteRect,
   x: number,
   y: number,
   w: number,
   h: number,
 ): void {
+  applyGlow(ctx, palette, key);
   ctx.drawImage(sheet, frame.sx, frame.sy, frame.sw, frame.sh, x, y, w, h);
+  clearGlow(ctx, palette);
 }
 
 /**
@@ -779,6 +818,11 @@ function createGame(
   let sheets: Record<SkinId, Spritesheet> | null = null;
   let sheet: Spritesheet | null = null;
   let sheetImg: HTMLImageElement | null = null;
+
+  // La skin activa y su paleta viven AQUÍ, dentro de la fábrica, nunca en el
+  // módulo: dos partidas abiertas a la vez no comparten piel.
+  let skin: SkinId = DEFAULT_SKIN;
+  let palette: Palette = PALETTES[DEFAULT_SKIN];
   let ready = false;
 
   let rafId: number | null = null;
@@ -904,7 +948,7 @@ function createGame(
   // clásico al portar un juego vanilla.
   function draw(): void {
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = CLASSIC_BACKGROUND;
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     // Sin hoja no hay nada que pintar: solo el fondo. Dura lo que tarde el PNG.
@@ -915,6 +959,7 @@ function createGame(
       drawSprite(
         ctx,
         sheet,
+        palette,
         `block_${block.color}`,
         block.x,
         block.y,
@@ -931,6 +976,8 @@ function createGame(
       drawFrame(
         ctx,
         sheet,
+        palette,
+        exp.color,
         EXPLOSION_FRAMES[exp.color][frameIndex],
         exp.x,
         exp.y,
@@ -939,8 +986,17 @@ function createGame(
       );
     }
 
-    drawSprite(ctx, sheet, "paddle", paddle.x, paddle.y, paddle.w, paddle.h);
-    drawSprite(ctx, sheet, "ball", ball.x, ball.y, ball.w, ball.h);
+    drawSprite(
+      ctx,
+      sheet,
+      palette,
+      "paddle",
+      paddle.x,
+      paddle.y,
+      paddle.w,
+      paddle.h,
+    );
+    drawSprite(ctx, sheet, palette, "ball", ball.x, ball.y, ball.w, ball.h);
   }
 
   /** Ajusta el búfer al tamaño real en pantalla (× DPR) y recalcula la escala. */
@@ -1028,8 +1084,8 @@ function createGame(
     // módulo, y `stop()` puede desactivar el callback si sigue en vuelo.
     sheetImg = loadSpritesheet(SPRITE_SRC, (loaded) => {
       sheets = loaded;
-      sheet = loaded[DEFAULT_SKIN];
-      ready = true;
+      sheet = loaded[skin]; // la ACTIVA, no la de por defecto: la skin pudo
+      ready = true; // cambiar mientras el PNG seguía en vuelo
     });
 
     keys.ArrowLeft = false;
