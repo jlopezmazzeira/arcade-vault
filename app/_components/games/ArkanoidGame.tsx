@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import styles from "./ArkanoidGame.module.css";
+import { DEFAULT_SKIN, type SkinId } from "./skins";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -227,6 +228,91 @@ function explosionRow(sy: number): SpriteRect[] {
     sh: 16,
   }));
 }
+
+// ── Skins ───────────────────────────────────────────────────────────────────
+//
+// Las diez superficies pintables de Arkanoid: el fondo del lienzo —vectorial,
+// el único color escrito a mano— y nueve de sprite (pala, pelota y los siete
+// colores de bloque con sus cuatro frames de explosión).
+//
+// Por eso una skin aquí NO es una lista de `fillStyle` como en `rocas`: es un
+// tinte que se aplica a la hoja UNA VEZ al cargar, no en cada blit. El color
+// de salida de un píxel es `P·(1−α) + C·α` —`P` el del PNG, `C` el tinte—,
+// que es calculable: los ratios de contraste de cada resultado contra el fondo
+// de SU piel están en specs/13-skins-arkanoid-bloque-buster.md.
+//
+// OJO: los nombres de `BlockColor` NO describen lo que pinta el PNG. `green`
+// es azul (#44aaf3), `magenta` es morado (#632ff4) y `hotpink` es naranja
+// (#fc7d1c). Es herencia del original, no un error: estas paletas se indexan
+// por NOMBRE de `BlockColor`, no por el color que el nombre sugiere.
+
+/** Las nueve superficies de sprite que se pueden teñir. */
+type SpriteTintKey = "paddle" | "ball" | BlockColor;
+
+type Palette = {
+  background: string;
+  /** `null` en `clasico`: la hoja se usa tal cual sale del PNG. */
+  tints: Record<SpriteTintKey, string> | null;
+  /** Alpha del `fillRect` con `source-atop`. Ignorado si `tints` es `null`. */
+  tintAlpha: number;
+  /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
+  glow: number;
+};
+
+// `clasico` no es una piel nueva: es el nombre del estado actual y la red de
+// no regresión de todo el eje. Su fondo es la constante del literal que
+// `draw()` ya tenía, y su hoja es la copia sin transformar del PNG.
+const clasico: Palette = {
+  background: CLASSIC_BACKGROUND,
+  tints: null, // la hoja NO se tiñe ni se filtra
+  tintAlpha: 0,
+  glow: 0,
+};
+
+// Saturada, anclada a los tokens de app/globals.css y al mismo fondo que la
+// `neon` de `rocas`. La pelota se tiñe de BLANCO y no de --yellow a propósito:
+// con tinte amarillo, pelota y bloque amarillo quedaban a 1.02:1 y la pelota
+// desaparecía justo mientras tunelaba por el muro.
+const neon: Palette = {
+  background: "#05010f",
+  tints: {
+    paddle: "#00f5ff", // token --cyan
+    ball: "#ffffff",
+    red: "#ff2d95",
+    cyan: "#00c8d6",
+    green: "#4d8bff",
+    magenta: "#c04dff",
+    yellow: "#c9d400",
+    hotpink: "#ff7a00",
+    gray: "#8f9bc9",
+  },
+  tintAlpha: 0.85,
+  glow: 8,
+};
+
+// Fósforo ámbar de CRT, con el mismo fondo que la `retro` de `rocas`. El alpha
+// es 0.94 y no 0.85 porque tres bloques parten de un color muy oscuro en el
+// PNG (gray #323142, magenta #632ff4, red #c02a3e): con 0.85 el magenta se
+// quedaba en 4.12:1, por debajo del suelo. Con 0.94 el tinte domina y el bisel
+// del sprite sobrevive como modulación fina.
+const retro: Palette = {
+  background: "#1a1206",
+  tints: {
+    paddle: "#ffe9c2",
+    ball: "#fff8e8",
+    red: "#c4762f",
+    cyan: "#d9a24a",
+    green: "#b8823c",
+    magenta: "#b87a36",
+    yellow: "#e8bd63",
+    hotpink: "#cf8f3a",
+    gray: "#ab8a5e",
+  },
+  tintAlpha: 0.94,
+  glow: 0,
+};
+
+const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
 
 /** Resuelve un nombre dibujable a su recorte en la hoja. */
 function spriteRect(name: SpriteName): SpriteRect {
