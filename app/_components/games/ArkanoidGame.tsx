@@ -774,6 +774,7 @@ type GameController = {
   stop: () => void;
   restart: () => void;
   setPaused: (paused: boolean) => void;
+  setSkin: (skin: SkinId) => void;
 };
 
 /**
@@ -1144,10 +1145,28 @@ function createGame(
     if (paused) releaseKeys();
   }
 
+  /**
+   * Cambia de piel SIN tocar la partida: ni `paddle`, ni `ball`, ni `blocks`,
+   * ni `explosions`, ni `score`, ni `lives`, ni `level`. Solo reasigna la
+   * paleta y la hoja activas y repinta el frame en curso, para que el cambio
+   * se vea también en pausa o con el juego detenido.
+   *
+   * Las hojas ya vienen teñidas de `loadSpritesheet`: aquí no se decodifica ni
+   * se tiñe nada, así que no hay tirón. Si el PNG aún no ha cargado, `sheets`
+   * es `null` y solo cambia el fondo: los sprites entran ya teñidos cuando la
+   * carga termine, porque el callback lee esta misma `skin`.
+   */
+  function setSkin(next: SkinId): void {
+    skin = next;
+    palette = PALETTES[next];
+    if (sheets) sheet = sheets[next];
+    draw();
+  }
+
   // Estado inicial listo antes del primer frame: nivel 1 en pantalla desde ya.
   loadLevel(1);
 
-  return { start, stop, restart, setPaused };
+  return { start, stop, restart, setPaused, setSkin };
 }
 
 // ── Componente React ────────────────────────────────────────────────────────
