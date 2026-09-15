@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
+import { DEFAULT_SKIN, type SkinId } from "./skins";
 import styles from "./TetrisGame.module.css";
 import type {
   GameSnapshot,
@@ -47,16 +48,6 @@ type GameState = {
 const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30; // px lógicos por celda
-
-const COLORS: Record<PieceType, string> = {
-  1: "#4dd0e1", // I — cian
-  2: "#ffd54f", // O — amarillo
-  3: "#ba68c8", // T — morado
-  4: "#81c784", // S — verde
-  5: "#e57373", // Z — rojo
-  6: "#90caf9", // J — azul pálido
-  7: "#ffb74d", // L — naranja
-};
 
 const PIECES: Record<PieceType, Cell[][]> = {
   1: [
@@ -137,10 +128,139 @@ const PREVIEW_X = PANEL_X + (PANEL_W - PREVIEW_SIZE) / 2;
 const PREVIEW_Y = 250;
 const PREVIEW_LABEL_Y = PREVIEW_Y - 26;
 
-const GRID_COLOR = "rgba(0, 245, 255, 0.08)";
-const BOARD_TINT = "rgba(0, 245, 255, 0.03)";
-const BOARD_BORDER = "rgba(0, 245, 255, 0.25)";
-const LABEL_COLOR = "#8a8fb5"; // --ink-dim
+// ── Paletas de skin ─────────────────────────────────────────────────────────
+//
+// Las once superficies pintables de Tetris, todas vectoriales. La paleta se
+// pasa como ARGUMENTO de cada `draw`, nunca se captura al construir el estado:
+// así una pieza ya fijada en el tablero antes de cambiar de piel se repinta con
+// la nueva en el frame siguiente, en vez de dejar el tablero con dos pieles a
+// la vez. Los ratios de contraste de cada color contra el fondo de SU piel
+// están calculados en specs/12-skins-tetris-caida.md.
+
+type Palette = {
+  background: string;
+  /** Rejilla tenue sobre todo el lienzo. */
+  grid: string;
+  /** Relleno del tablero de juego. Transparente en `neon` y en `retro`. */
+  boardTint: string;
+  /** Borde del tablero y del recuadro de SIGUIENTE. */
+  boardBorder: string;
+  /** Rótulo "SIGUIENTE". */
+  label: string;
+  /** Macizo con barra (`clasico`), macizo pleno (`retro`) o hueco (`neon`). */
+  cellStyle: "solid" | "flat" | "outline";
+  /** Barra de brillo superior del bloque. Solo en `solid`; no se tiñe. */
+  cellHighlight: string;
+  /** Alpha del relleno interior. Solo en `outline`. */
+  cellFillAlpha: number;
+  /** Los siete tetrominós, de I a L. */
+  pieces: Record<PieceType, string>;
+  /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
+  glow: number;
+};
+
+// `clasico` son los literales que este fichero ya tenía escritos, copiados uno
+// a uno —formas cortas incluidas—. No es una piel nueva: es el nombre del
+// estado actual, y la red de no regresión de todo este eje.
+const clasico: Palette = {
+  background: "#000",
+  grid: "rgba(0, 245, 255, 0.08)",
+  boardTint: "rgba(0, 245, 255, 0.03)",
+  boardBorder: "rgba(0, 245, 255, 0.25)",
+  label: "#8a8fb5",
+  cellStyle: "solid",
+  cellHighlight: "rgba(255,255,255,0.12)",
+  cellFillAlpha: 1, // sin uso en `solid`
+  pieces: {
+    1: "#4dd0e1", // I
+    2: "#ffd54f", // O
+    3: "#ba68c8", // T
+    4: "#81c784", // S
+    5: "#e57373", // Z
+    6: "#90caf9", // J
+    7: "#ffb74d", // L
+  },
+  glow: 0,
+};
+
+// Tubo de neón sobre negro puro: el bloque se ve por su CONTORNO, no por su
+// masa. Muestreada píxel a píxel de la captura de referencia —de ahí salen T, Z
+// y L; las otras cuatro se derivan con la misma saturación y luminosidad—. El
+// tablero no se tiñe: lo delimita su borde.
+const neon: Palette = {
+  background: "#000000",
+  grid: "rgba(255, 255, 255, 0.07)",
+  // Transparente, no negro: el tablero se pinta DESPUÉS de la rejilla, y un
+  // tinte opaco la borraría justo dentro del tablero.
+  boardTint: "rgba(0, 0, 0, 0)",
+  boardBorder: "#292b39",
+  label: "#8a8fb5",
+  cellStyle: "outline",
+  cellHighlight: "rgba(255,255,255,0.12)", // sin uso en `outline`
+  cellFillAlpha: 0.15,
+  pieces: {
+    1: "#00f5ff", // I — token --cyan
+    2: "#ffe23d", // O
+    3: "#db36f3", // T — medido en la referencia
+    4: "#2bff88", // S
+    5: "#ff1849", // Z — medido en la referencia
+    6: "#3d7bff", // J
+    7: "#ff8e2d", // L — medido en la referencia
+  },
+  // Se multiplica por la escala del lienzo antes de dibujar: `shadowBlur` se
+  // aplica en píxeles del búfer y la transformación del canvas NO lo escala.
+  glow: 18,
+};
+
+// Siete colores SATURADOS de color pleno sobre azul-pizarra, sin halo y sin
+// barra de brillo: `cellStyle: "flat"`. Lo que separa esta piel de `clasico` es
+// la saturación —0,74 frente a 0,49—, no el fondo ni el brillo: las tres
+// paletas anteriores (ámbar monocromo, matices apagados y pastel) acababan a
+// una distancia RGB media de 24 de `clasico`, es decir, siendo `clasico`. La
+// junta entre bloques contiguos la marcan los 2 px de fondo que dejan los
+// márgenes de 1 px.
+const retro: Palette = {
+  background: "#191b24",
+  grid: "rgba(255, 255, 255, 0.04)",
+  boardTint: "rgba(0, 0, 0, 0)", // transparente, por lo mismo que en `neon`
+  boardBorder: "#292b39",
+  label: "#8a8fb5",
+  cellStyle: "flat",
+  cellHighlight: "rgba(255,255,255,0.12)", // sin uso en `flat`
+  cellFillAlpha: 1, // sin uso en `flat`
+  pieces: {
+    1: "#19c3c9", // I
+    2: "#e8bb2a", // O
+    3: "#b968e8", // T
+    4: "#3fbf55", // S
+    5: "#f2564a", // Z
+    6: "#4f8bf5", // J
+    7: "#e8861a", // L
+  },
+  glow: 0,
+};
+
+const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
+
+/** Halo: solo `neon` lo pide. Con `glow` a 0 no se toca `shadowBlur` siquiera. */
+function withGlow(
+  ctx: CanvasRenderingContext2D,
+  glow: number,
+  color: string,
+): void {
+  if (glow > 0) {
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = color;
+  }
+}
+
+/** Contrapartida de `withGlow`: el brillo del bloque nunca va con halo. */
+function clearGlow(ctx: CanvasRenderingContext2D, glow: number): void {
+  if (glow > 0) {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+}
 
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pieza no cae de golpe. */
 const DT_CAP = 50; // ms
@@ -357,6 +477,9 @@ function createInitialState(): GameState {
  */
 function drawCell(
   ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  /** `shadowBlur` efectivo, ya multiplicado por la escala del lienzo. */
+  glowBlur: number,
   originX: number,
   originY: number,
   col: number,
@@ -368,18 +491,53 @@ function drawCell(
   if (!type) return;
   const x = originX + col * size;
   const y = originY + row * size;
+  const color = palette.pieces[type];
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = COLORS[type];
+
+  if (palette.cellStyle === "outline") {
+    // Celda hueca: relleno tenue del propio color y, encima, el trazo pleno. El
+    // bloque se lee por su contorno, así que NO lleva barra de brillo: taparía
+    // justo la arista superior, que es la que hace el trabajo.
+    ctx.globalAlpha = alpha * palette.cellFillAlpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    // Centrado en x+2.5: el trazo ocupa de x+1 a x+4 y nunca invade la celda
+    // vecina, de modo que dos bloques contiguos siempre muestran su junta.
+    const inset = 2.5;
+    const side = size - inset * 2;
+    // Dos pasadas: la primera con halo —que sangra también HACIA DENTRO y da el
+    // degradado del interior, medido en la referencia—, la segunda nítida encima
+    // para recuperar el núcleo del tubo.
+    withGlow(ctx, glowBlur, color);
+    ctx.strokeRect(x + inset, y + inset, side, side);
+    clearGlow(ctx, glowBlur);
+    ctx.strokeRect(x + inset, y + inset, side, side);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  // Bloque macizo: relleno pleno con margen de 1 px por lado, de modo que entre
+  // dos bloques contiguos siempre quedan 2 px de fondo.
+  withGlow(ctx, glowBlur, color);
+  ctx.fillStyle = color;
   ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
-  // Brillo superior: da volumen al bloque, como en el original.
-  ctx.fillStyle = "rgba(255,255,255,0.12)";
-  ctx.fillRect(x + 1, y + 1, size - 2, 4);
+  clearGlow(ctx, glowBlur);
+  if (palette.cellStyle === "solid") {
+    // Brillo superior: da volumen al bloque, como en el original. No lleva halo
+    // —es una señal de volumen, no de color— y en `flat` no se pinta: sobre
+    // pastel contrasta 1.05:1 con la propia pieza y lee como rayado.
+    ctx.fillStyle = palette.cellHighlight;
+    ctx.fillRect(x + 1, y + 1, size - 2, 4);
+  }
   ctx.globalAlpha = 1;
 }
 
 /** Rejilla tenue sobre TODO el lienzo, alineada a la celda de 30 px. */
-function drawGrid(ctx: CanvasRenderingContext2D): void {
-  ctx.strokeStyle = GRID_COLOR;
+function drawGrid(ctx: CanvasRenderingContext2D, palette: Palette): void {
+  ctx.strokeStyle = palette.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = BLOCK; x < VIEW_W; x += BLOCK) {
@@ -407,6 +565,7 @@ type GameController = {
   stop: () => void;
   restart: () => void;
   setPaused: (paused: boolean) => void;
+  setSkin: (skin: SkinId) => void;
 };
 
 /**
@@ -425,6 +584,13 @@ function createGame(
   let dropAccum = 0;
   let lastTime: number | null = null;
   let rafId: number | null = null;
+
+  // ── Piel activa ──
+  // Se lee en el momento de dibujar y se pasa a cada función de dibujo, nunca
+  // se captura al construir el estado: así una pieza ya fijada en el tablero
+  // antes de cambiar de piel se repinta con la nueva. Arranca en la piel por
+  // defecto y `restart()` no la toca: morir no devuelve a `clasico`.
+  let palette: Palette = PALETTES[DEFAULT_SKIN];
 
   // El canvas se dibuja SIEMPRE en coordenadas lógicas 800×600; el búfer real
   // se ajusta al tamaño en pantalla (× DPR) y el contexto se escala, de modo
@@ -556,21 +722,31 @@ function createGame(
   }
 
   // ── Draw ──
-  function drawBoard(): void {
-    ctx.fillStyle = BOARD_TINT;
+  function drawBoard(palette: Palette, glowBlur: number): void {
+    ctx.fillStyle = palette.boardTint;
     ctx.fillRect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H);
-    ctx.strokeStyle = BOARD_BORDER;
+    ctx.strokeStyle = palette.boardBorder;
     ctx.lineWidth = 2;
     ctx.strokeRect(BOARD_X + 1, BOARD_Y + 1, BOARD_W - 2, BOARD_H - 2);
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        drawCell(ctx, BOARD_X, BOARD_Y, c, r, state.board[r][c], BLOCK);
+        drawCell(
+          ctx,
+          palette,
+          glowBlur,
+          BOARD_X,
+          BOARD_Y,
+          c,
+          r,
+          state.board[r][c],
+          BLOCK,
+        );
       }
     }
   }
 
-  function drawPiece(): void {
+  function drawPiece(palette: Palette, glowBlur: number): void {
     const { shape, x, y } = state.current;
     // Ghost primero: la pieza real se pinta encima cuando se solapan.
     const gy = ghostY(state);
@@ -578,6 +754,8 @@ function createGame(
       for (let c = 0; c < shape[r].length; c++) {
         drawCell(
           ctx,
+          palette,
+          glowBlur,
           BOARD_X,
           BOARD_Y,
           x + c,
@@ -590,19 +768,29 @@ function createGame(
     }
     for (let r = 0; r < shape.length; r++) {
       for (let c = 0; c < shape[r].length; c++) {
-        drawCell(ctx, BOARD_X, BOARD_Y, x + c, y + r, shape[r][c], BLOCK);
+        drawCell(
+          ctx,
+          palette,
+          glowBlur,
+          BOARD_X,
+          BOARD_Y,
+          x + c,
+          y + r,
+          shape[r][c],
+          BLOCK,
+        );
       }
     }
   }
 
-  function drawPanel(): void {
+  function drawPanel(palette: Palette, glowBlur: number): void {
     ctx.font = labelFont;
-    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillStyle = palette.label;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
     ctx.fillText("SIGUIENTE", PANEL_X + PANEL_W / 2, PREVIEW_LABEL_Y);
 
-    ctx.strokeStyle = BOARD_BORDER;
+    ctx.strokeStyle = palette.boardBorder;
     ctx.lineWidth = 1;
     ctx.strokeRect(
       PREVIEW_X + 0.5,
@@ -619,6 +807,8 @@ function createGame(
       for (let c = 0; c < shape[r].length; c++) {
         drawCell(
           ctx,
+          palette,
+          glowBlur,
           PREVIEW_X,
           PREVIEW_Y,
           offX + c,
@@ -652,12 +842,16 @@ function createGame(
   function draw(): void {
     // Base: mapea las coordenadas lógicas 800×600 al búfer real del canvas.
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawGrid(ctx);
-    drawBoard();
-    drawPiece();
-    drawPanel();
+    // `shadowBlur` se aplica en píxeles del búfer, así que hay que escalarlo a
+    // mano: si no, el halo mide una fracción distinta de celda según el tamaño
+    // en pantalla y el DPR. Se calcula una vez por frame, no por celda.
+    const glowBlur = palette.glow * scaleX;
+    drawGrid(ctx, palette);
+    drawBoard(palette, glowBlur);
+    drawPiece(palette, glowBlur);
+    drawPanel(palette, glowBlur);
   }
 
   // ── Bucle ──
@@ -769,7 +963,18 @@ function createGame(
     if (paused) soltarTeclas();
   }
 
-  return { start, stop, restart, setPaused };
+  // Cambiar de piel NO reinicia: solo cambia con qué se pinta. Ni `board`, ni
+  // `current`, ni `next`, ni `score`, ni `lines`, ni `level`, ni `dropInterval`
+  // se tocan aquí — y por eso se puede llamar con la partida en curso o en
+  // pausa.
+  function setSkin(next: SkinId): void {
+    palette = PALETTES[next] ?? PALETTES[DEFAULT_SKIN];
+    // Repinta el frame en curso: en pausa y en fin de partida el bucle no
+    // avanza, y sin esto el cambio no se vería hasta reanudar.
+    draw();
+  }
+
+  return { start, stop, restart, setPaused, setSkin };
 }
 
 // ── Componente React ────────────────────────────────────────────────────────
@@ -778,11 +983,11 @@ function createGame(
 // `createGame`, lo arranca y —en el cleanup— lo detiene (cancela el rAF y, a
 // partir de los pasos 7 y 8, desconecta el ResizeObserver y quita los listeners
 // de teclado). Los callbacks entran por refs espejo para NO recrear el juego
-// cuando cambian. `paused` se propaga en un efecto aparte, y `restart()` se
-// expone como método imperativo vía `useImperativeHandle`.
+// cuando cambian. `paused` y `skin` se propagan en efectos aparte, y
+// `restart()` se expone como método imperativo vía `useImperativeHandle`.
 
 const TetrisGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
-  function TetrisGame({ paused, onSnapshot, onGameOver }, ref) {
+  function TetrisGame({ paused, skin, onSnapshot, onGameOver }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const gameRef = useRef<GameController | null>(null);
 
@@ -821,6 +1026,14 @@ const TetrisGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
     useEffect(() => {
       gameRef.current?.setPaused(paused);
     }, [paused]);
+
+    // Propaga la piel elegida en el HUD. Efecto APARTE, con `skin` como única
+    // dependencia: si `skin` entrase en las deps del efecto de montaje, cada
+    // cambio destruiría y recrearía el juego y el jugador perdería la pila de
+    // piezas y la puntuación al tocar el selector.
+    useEffect(() => {
+      gameRef.current?.setSkin(skin ?? DEFAULT_SKIN);
+    }, [skin]);
 
     // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
     useImperativeHandle(
