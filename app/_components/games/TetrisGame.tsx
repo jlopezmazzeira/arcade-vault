@@ -137,10 +137,12 @@ const PREVIEW_X = PANEL_X + (PANEL_W - PREVIEW_SIZE) / 2;
 const PREVIEW_Y = 250;
 const PREVIEW_LABEL_Y = PREVIEW_Y - 26;
 
+const BACKGROUND_COLOR = "#000";
 const GRID_COLOR = "rgba(0, 245, 255, 0.08)";
 const BOARD_TINT = "rgba(0, 245, 255, 0.03)";
 const BOARD_BORDER = "rgba(0, 245, 255, 0.25)";
 const LABEL_COLOR = "#8a8fb5"; // --ink-dim
+const CELL_HIGHLIGHT = "rgba(255,255,255,0.12)";
 
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pieza no cae de golpe. */
 const DT_CAP = 50; // ms
@@ -372,7 +374,7 @@ function drawCell(
   ctx.fillStyle = COLORS[type];
   ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
   // Brillo superior: da volumen al bloque, como en el original.
-  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillStyle = CELL_HIGHLIGHT;
   ctx.fillRect(x + 1, y + 1, size - 2, 4);
   ctx.globalAlpha = 1;
 }
@@ -652,7 +654,7 @@ function createGame(
   function draw(): void {
     // Base: mapea las coordenadas lógicas 800×600 al búfer real del canvas.
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = BACKGROUND_COLOR;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     drawGrid(ctx);
     drawBoard();
