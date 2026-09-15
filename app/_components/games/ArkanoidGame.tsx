@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import styles from "./ArkanoidGame.module.css";
-import { DEFAULT_SKIN, type SkinId } from "./skins";
+import { DEFAULT_SKIN, SKIN_IDS, type SkinId } from "./skins";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -353,6 +353,64 @@ function drawFrame(
 }
 
 /**
+ * Región de la hoja que cubre el tinte de una superficie.
+ *
+ * Pala y pelota son su propio recorte. Un bloque, en cambio, es la FILA ENTERA
+ * de la hoja: sus cuatro frames de explosión comparten `sy` con él
+ * (`explosionRow`), y tiñendo solo el recorte del bloque un ladrillo ámbar
+ * explotaría en rojo durante los 150 ms de la animación.
+ *
+ * `gray` no tiene fila de explosión propia —reutiliza la de `red`—, así que su
+ * explosión hereda el tinte de `red`. Es el mismo comportamiento del original.
+ */
+function tintRegion(
+  key: SpriteTintKey,
+  sheetWidth: number,
+): { x: number; y: number; w: number; h: number } {
+  if (key === "paddle" || key === "ball") {
+    const sp = SPRITES[key];
+    return { x: sp.sx, y: sp.sy, w: sp.sw, h: sp.sh };
+  }
+  const sp = SPRITES.blocks[key];
+  return { x: 0, y: sp.sy, w: sheetWidth, h: sp.sh };
+}
+
+/**
+ * Devuelve la hoja teñida con los colores de una paleta.
+ *
+ * `clasico` no pasa por aquí: con `tints` a `null` se devuelve la hoja base tal
+ * cual, sin copiarla siquiera. Esa es la regla dura del eje de skins — la piel
+ * por defecto no puede pintar un solo píxel distinto— y es lo que hace que la
+ * memoria suba en DOS hojas y no en tres.
+ *
+ * El teñido es un `fillRect` por superficie con `source-atop`, que respeta el
+ * canal alfa del PNG y deja un color de salida `P·(1−α) + C·α`. Se hace UNA VEZ
+ * al cargar, nunca por frame ni al cambiar de skin.
+ */
+function tintSheet(base: Spritesheet, palette: Palette): Spritesheet {
+  const tints = palette.tints;
+  if (!tints) return base; // `clasico`: la hoja sin transformar
+
+  const off = document.createElement("canvas");
+  off.width = base.width;
+  off.height = base.height;
+  const offCtx = off.getContext("2d");
+  if (!offCtx) return base; // sin contexto, mejor la hoja original que nada
+
+  offCtx.drawImage(base, 0, 0);
+  offCtx.globalCompositeOperation = "source-atop";
+  offCtx.globalAlpha = palette.tintAlpha;
+
+  for (const key of Object.keys(tints) as SpriteTintKey[]) {
+    const r = tintRegion(key, base.width);
+    offCtx.fillStyle = tints[key];
+    offCtx.fillRect(r.x, r.y, r.w, r.h);
+  }
+
+  return off;
+}
+
+/**
  * Arranca la carga del spritesheet y devuelve la `Image` en vuelo.
  *
  * Función pura: no guarda nada: quien la llama —la fábrica `createGame`— se
@@ -361,7 +419,7 @@ function drawFrame(
  */
 function loadSpritesheet(
   src: string,
-  onReady: (sheet: Spritesheet) => void,
+  onReady: (sheets: Record<SkinId, Spritesheet>) => void,
 ): HTMLImageElement {
   const img = new Image();
   img.onload = () => {
@@ -372,7 +430,13 @@ function loadSpritesheet(
     const offCtx = off.getContext("2d");
     if (!offCtx) return;
     offCtx.drawImage(img, 0, 0);
-    onReady(off);
+
+    // Las tres hojas se generan AQUÍ, una sola vez: `clasico` es esta misma
+    // copia sin tocar y las otras dos son su teñido. Cambiar de skin en mitad
+    // de la partida no decodifica ni tiñe nada, solo elige otra entrada.
+    const sheets = {} as Record<SkinId, Spritesheet>;
+    for (const id of SKIN_IDS) sheets[id] = tintSheet(off, PALETTES[id]);
+    onReady(sheets);
   };
   img.onerror = () => {
     console.error(`No se pudo cargar el spritesheet: ${src}`);
@@ -708,9 +772,11 @@ function createGame(
   let running = false;
   let gameOver = false;
 
-  // El spritesheet: `sheet` es el canvas intermedio ya decodificado y `ready`
-  // el permiso para que `update` avance. `sheetImg` se conserva solo para poder
-  // anular su `onload` en `stop()` si la carga sigue en vuelo al desmontar.
+  // El spritesheet: `sheets` son las tres hojas ya decodificadas y teñidas,
+  // `sheet` la activa según la skin y `ready` el permiso para que `update`
+  // avance. `sheetImg` se conserva solo para poder anular su `onload` en
+  // `stop()` si la carga sigue en vuelo al desmontar.
+  let sheets: Record<SkinId, Spritesheet> | null = null;
   let sheet: Spritesheet | null = null;
   let sheetImg: HTMLImageElement | null = null;
   let ready = false;
@@ -961,7 +1027,8 @@ function createGame(
     // La carga la posee la fábrica: el `sheet` y el `ready` son suyos, no del
     // módulo, y `stop()` puede desactivar el callback si sigue en vuelo.
     sheetImg = loadSpritesheet(SPRITE_SRC, (loaded) => {
-      sheet = loaded;
+      sheets = loaded;
+      sheet = loaded[DEFAULT_SKIN];
       ready = true;
     });
 
