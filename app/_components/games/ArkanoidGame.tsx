@@ -1174,11 +1174,11 @@ function createGame(
 // Ata el ciclo de vida del juego: el efecto de montaje crea la partida con
 // `createGame`, la arranca y —en el cleanup— la apaga entera (rAF, listeners,
 // ResizeObserver y el `onload` del spritesheet). Los callbacks entran por refs
-// espejo para NO recrear el juego cuando cambian, `paused` viaja en un efecto
-// aparte, y `restart()` se expone como método imperativo.
+// espejo para NO recrear el juego cuando cambian, `paused` y `skin` viajan cada
+// uno en un efecto aparte, y `restart()` se expone como método imperativo.
 
 const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
-  function ArkanoidGame({ paused, onSnapshot, onGameOver }, ref) {
+  function ArkanoidGame({ paused, skin, onSnapshot, onGameOver }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const gameRef = useRef<GameController | null>(null);
 
@@ -1218,6 +1218,14 @@ const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
     useEffect(() => {
       gameRef.current?.setPaused(paused);
     }, [paused]);
+
+    // Propaga la piel elegida en el HUD. Efecto APARTE, con `skin` como única
+    // dependencia: si `skin` entrase en las deps del efecto de montaje, cada
+    // cambio destruiría y recrearía el juego y el jugador perdería los bloques
+    // ya rotos, las vidas y la puntuación al tocar el selector.
+    useEffect(() => {
+      gameRef.current?.setSkin(skin ?? DEFAULT_SKIN);
+    }, [skin]);
 
     // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
     useImperativeHandle(
