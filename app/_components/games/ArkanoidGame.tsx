@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import styles from "./ArkanoidGame.module.css";
+import { DEFAULT_SKIN, SKIN_IDS, type SkinId } from "./skins";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -132,6 +133,13 @@ const MAX_STEP_PX = 8;
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pelota no salta. */
 const DT_CAP = 50; // ms
 
+/**
+ * Fondo del lienzo. Único color escrito a mano del fichero: todo lo demás sale
+ * del spritesheet. La SPEC 13 lo saca a constante para que la skin pueda
+ * reemplazarlo; el valor es el mismo que pintaba `draw()` hasta ahora.
+ */
+const CLASSIC_BACKGROUND = "#000";
+
 // ── Teclado ─────────────────────────────────────────────────────────────────
 //
 // Solo `←` y `→`, como `rocas` y `caida`. Las teclas `P` / `Escape` de pausa del
@@ -221,6 +229,91 @@ function explosionRow(sy: number): SpriteRect[] {
   }));
 }
 
+// ── Skins ───────────────────────────────────────────────────────────────────
+//
+// Las diez superficies pintables de Arkanoid: el fondo del lienzo —vectorial,
+// el único color escrito a mano— y nueve de sprite (pala, pelota y los siete
+// colores de bloque con sus cuatro frames de explosión).
+//
+// Por eso una skin aquí NO es una lista de `fillStyle` como en `rocas`: es un
+// tinte que se aplica a la hoja UNA VEZ al cargar, no en cada blit. El color
+// de salida de un píxel es `P·(1−α) + C·α` —`P` el del PNG, `C` el tinte—,
+// que es calculable: los ratios de contraste de cada resultado contra el fondo
+// de SU piel están en specs/13-skins-arkanoid-bloque-buster.md.
+//
+// OJO: los nombres de `BlockColor` NO describen lo que pinta el PNG. `green`
+// es azul (#44aaf3), `magenta` es morado (#632ff4) y `hotpink` es naranja
+// (#fc7d1c). Es herencia del original, no un error: estas paletas se indexan
+// por NOMBRE de `BlockColor`, no por el color que el nombre sugiere.
+
+/** Las nueve superficies de sprite que se pueden teñir. */
+type SpriteTintKey = "paddle" | "ball" | BlockColor;
+
+type Palette = {
+  background: string;
+  /** `null` en `clasico`: la hoja se usa tal cual sale del PNG. */
+  tints: Record<SpriteTintKey, string> | null;
+  /** Alpha del `fillRect` con `source-atop`. Ignorado si `tints` es `null`. */
+  tintAlpha: number;
+  /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
+  glow: number;
+};
+
+// `clasico` no es una piel nueva: es el nombre del estado actual y la red de
+// no regresión de todo el eje. Su fondo es la constante del literal que
+// `draw()` ya tenía, y su hoja es la copia sin transformar del PNG.
+const clasico: Palette = {
+  background: CLASSIC_BACKGROUND,
+  tints: null, // la hoja NO se tiñe ni se filtra
+  tintAlpha: 0,
+  glow: 0,
+};
+
+// Saturada, anclada a los tokens de app/globals.css y al mismo fondo que la
+// `neon` de `rocas`. La pelota se tiñe de BLANCO y no de --yellow a propósito:
+// con tinte amarillo, pelota y bloque amarillo quedaban a 1.02:1 y la pelota
+// desaparecía justo mientras tunelaba por el muro.
+const neon: Palette = {
+  background: "#05010f",
+  tints: {
+    paddle: "#00f5ff", // token --cyan
+    ball: "#ffffff",
+    red: "#ff2d95",
+    cyan: "#00c8d6",
+    green: "#4d8bff",
+    magenta: "#c04dff",
+    yellow: "#c9d400",
+    hotpink: "#ff7a00",
+    gray: "#8f9bc9",
+  },
+  tintAlpha: 0.85,
+  glow: 8,
+};
+
+// Fósforo ámbar de CRT, con el mismo fondo que la `retro` de `rocas`. El alpha
+// es 0.94 y no 0.85 porque tres bloques parten de un color muy oscuro en el
+// PNG (gray #323142, magenta #632ff4, red #c02a3e): con 0.85 el magenta se
+// quedaba en 4.12:1, por debajo del suelo. Con 0.94 el tinte domina y el bisel
+// del sprite sobrevive como modulación fina.
+const retro: Palette = {
+  background: "#1a1206",
+  tints: {
+    paddle: "#ffe9c2",
+    ball: "#fff8e8",
+    red: "#c4762f",
+    cyan: "#d9a24a",
+    green: "#b8823c",
+    magenta: "#b87a36",
+    yellow: "#e8bd63",
+    hotpink: "#cf8f3a",
+    gray: "#ab8a5e",
+  },
+  tintAlpha: 0.94,
+  glow: 0,
+};
+
+const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
+
 /** Resuelve un nombre dibujable a su recorte en la hoja. */
 function spriteRect(name: SpriteName): SpriteRect {
   if (name === "paddle" || name === "ball") return SPRITES[name];
@@ -229,13 +322,42 @@ function spriteRect(name: SpriteName): SpriteRect {
 }
 
 /**
+ * Halo: solo `neon` lo pide, y su color es el TINTE de la superficie que se va
+ * a pintar. Con `glow` a 0 no se toca `shadowBlur` siquiera.
+ *
+ * El halo solo suma brillo alrededor del núcleo del sprite: los ratios de
+ * contraste de la spec están calculados sobre el color del núcleo, que es lo
+ * conservador.
+ */
+function applyGlow(
+  ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  key: SpriteTintKey,
+): void {
+  if (palette.glow > 0 && palette.tints) {
+    ctx.shadowBlur = palette.glow;
+    ctx.shadowColor = palette.tints[key];
+  }
+}
+
+/** Contrapartida de `applyGlow`: el chrome del canvas no hereda el halo. */
+function clearGlow(ctx: CanvasRenderingContext2D, palette: Palette): void {
+  if (palette.glow > 0) {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+}
+
+/**
  * Dibuja un sprite por nombre. A diferencia del original
  * (spritesheet.js:56-66), el sheet entra por parámetro en vez de leerse de una
- * variable de módulo: así dos partidas no comparten nada.
+ * variable de módulo: así dos partidas no comparten nada. La hoja y la paleta
+ * son las ACTIVAS: cambiar de skin solo cambia lo que se le pasa aquí.
  */
 function drawSprite(
   ctx: CanvasRenderingContext2D,
   sheet: Spritesheet,
+  palette: Palette,
   name: SpriteName,
   x: number,
   y: number,
@@ -243,20 +365,88 @@ function drawSprite(
   h: number,
 ): void {
   const sp = spriteRect(name);
+  const key: SpriteTintKey =
+    name === "paddle" || name === "ball"
+      ? name
+      : (name.slice(6) as BlockColor);
+  applyGlow(ctx, palette, key);
   ctx.drawImage(sheet, sp.sx, sp.sy, sp.sw, sp.sh, x, y, w, h);
+  clearGlow(ctx, palette);
 }
 
 /** Dibuja un frame suelto de animación (spritesheet.js:51-54). */
 function drawFrame(
   ctx: CanvasRenderingContext2D,
   sheet: Spritesheet,
+  palette: Palette,
+  key: SpriteTintKey,
   frame: SpriteRect,
   x: number,
   y: number,
   w: number,
   h: number,
 ): void {
+  applyGlow(ctx, palette, key);
   ctx.drawImage(sheet, frame.sx, frame.sy, frame.sw, frame.sh, x, y, w, h);
+  clearGlow(ctx, palette);
+}
+
+/**
+ * Región de la hoja que cubre el tinte de una superficie.
+ *
+ * Pala y pelota son su propio recorte. Un bloque, en cambio, es la FILA ENTERA
+ * de la hoja: sus cuatro frames de explosión comparten `sy` con él
+ * (`explosionRow`), y tiñendo solo el recorte del bloque un ladrillo ámbar
+ * explotaría en rojo durante los 150 ms de la animación.
+ *
+ * `gray` no tiene fila de explosión propia —reutiliza la de `red`—, así que su
+ * explosión hereda el tinte de `red`. Es el mismo comportamiento del original.
+ */
+function tintRegion(
+  key: SpriteTintKey,
+  sheetWidth: number,
+): { x: number; y: number; w: number; h: number } {
+  if (key === "paddle" || key === "ball") {
+    const sp = SPRITES[key];
+    return { x: sp.sx, y: sp.sy, w: sp.sw, h: sp.sh };
+  }
+  const sp = SPRITES.blocks[key];
+  return { x: 0, y: sp.sy, w: sheetWidth, h: sp.sh };
+}
+
+/**
+ * Devuelve la hoja teñida con los colores de una paleta.
+ *
+ * `clasico` no pasa por aquí: con `tints` a `null` se devuelve la hoja base tal
+ * cual, sin copiarla siquiera. Esa es la regla dura del eje de skins — la piel
+ * por defecto no puede pintar un solo píxel distinto— y es lo que hace que la
+ * memoria suba en DOS hojas y no en tres.
+ *
+ * El teñido es un `fillRect` por superficie con `source-atop`, que respeta el
+ * canal alfa del PNG y deja un color de salida `P·(1−α) + C·α`. Se hace UNA VEZ
+ * al cargar, nunca por frame ni al cambiar de skin.
+ */
+function tintSheet(base: Spritesheet, palette: Palette): Spritesheet {
+  const tints = palette.tints;
+  if (!tints) return base; // `clasico`: la hoja sin transformar
+
+  const off = document.createElement("canvas");
+  off.width = base.width;
+  off.height = base.height;
+  const offCtx = off.getContext("2d");
+  if (!offCtx) return base; // sin contexto, mejor la hoja original que nada
+
+  offCtx.drawImage(base, 0, 0);
+  offCtx.globalCompositeOperation = "source-atop";
+  offCtx.globalAlpha = palette.tintAlpha;
+
+  for (const key of Object.keys(tints) as SpriteTintKey[]) {
+    const r = tintRegion(key, base.width);
+    offCtx.fillStyle = tints[key];
+    offCtx.fillRect(r.x, r.y, r.w, r.h);
+  }
+
+  return off;
 }
 
 /**
@@ -268,7 +458,7 @@ function drawFrame(
  */
 function loadSpritesheet(
   src: string,
-  onReady: (sheet: Spritesheet) => void,
+  onReady: (sheets: Record<SkinId, Spritesheet>) => void,
 ): HTMLImageElement {
   const img = new Image();
   img.onload = () => {
@@ -279,7 +469,13 @@ function loadSpritesheet(
     const offCtx = off.getContext("2d");
     if (!offCtx) return;
     offCtx.drawImage(img, 0, 0);
-    onReady(off);
+
+    // Las tres hojas se generan AQUÍ, una sola vez: `clasico` es esta misma
+    // copia sin tocar y las otras dos son su teñido. Cambiar de skin en mitad
+    // de la partida no decodifica ni tiñe nada, solo elige otra entrada.
+    const sheets = {} as Record<SkinId, Spritesheet>;
+    for (const id of SKIN_IDS) sheets[id] = tintSheet(off, PALETTES[id]);
+    onReady(sheets);
   };
   img.onerror = () => {
     console.error(`No se pudo cargar el spritesheet: ${src}`);
@@ -578,6 +774,7 @@ type GameController = {
   stop: () => void;
   restart: () => void;
   setPaused: (paused: boolean) => void;
+  setSkin: (skin: SkinId) => void;
 };
 
 /**
@@ -615,11 +812,18 @@ function createGame(
   let running = false;
   let gameOver = false;
 
-  // El spritesheet: `sheet` es el canvas intermedio ya decodificado y `ready`
-  // el permiso para que `update` avance. `sheetImg` se conserva solo para poder
-  // anular su `onload` en `stop()` si la carga sigue en vuelo al desmontar.
+  // El spritesheet: `sheets` son las tres hojas ya decodificadas y teñidas,
+  // `sheet` la activa según la skin y `ready` el permiso para que `update`
+  // avance. `sheetImg` se conserva solo para poder anular su `onload` en
+  // `stop()` si la carga sigue en vuelo al desmontar.
+  let sheets: Record<SkinId, Spritesheet> | null = null;
   let sheet: Spritesheet | null = null;
   let sheetImg: HTMLImageElement | null = null;
+
+  // La skin activa y su paleta viven AQUÍ, dentro de la fábrica, nunca en el
+  // módulo: dos partidas abiertas a la vez no comparten piel.
+  let skin: SkinId = DEFAULT_SKIN;
+  let palette: Palette = PALETTES[DEFAULT_SKIN];
   let ready = false;
 
   let rafId: number | null = null;
@@ -745,7 +949,7 @@ function createGame(
   // clásico al portar un juego vanilla.
   function draw(): void {
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     // Sin hoja no hay nada que pintar: solo el fondo. Dura lo que tarde el PNG.
@@ -756,6 +960,7 @@ function createGame(
       drawSprite(
         ctx,
         sheet,
+        palette,
         `block_${block.color}`,
         block.x,
         block.y,
@@ -772,6 +977,8 @@ function createGame(
       drawFrame(
         ctx,
         sheet,
+        palette,
+        exp.color,
         EXPLOSION_FRAMES[exp.color][frameIndex],
         exp.x,
         exp.y,
@@ -780,8 +987,17 @@ function createGame(
       );
     }
 
-    drawSprite(ctx, sheet, "paddle", paddle.x, paddle.y, paddle.w, paddle.h);
-    drawSprite(ctx, sheet, "ball", ball.x, ball.y, ball.w, ball.h);
+    drawSprite(
+      ctx,
+      sheet,
+      palette,
+      "paddle",
+      paddle.x,
+      paddle.y,
+      paddle.w,
+      paddle.h,
+    );
+    drawSprite(ctx, sheet, palette, "ball", ball.x, ball.y, ball.w, ball.h);
   }
 
   /** Ajusta el búfer al tamaño real en pantalla (× DPR) y recalcula la escala. */
@@ -868,8 +1084,9 @@ function createGame(
     // La carga la posee la fábrica: el `sheet` y el `ready` son suyos, no del
     // módulo, y `stop()` puede desactivar el callback si sigue en vuelo.
     sheetImg = loadSpritesheet(SPRITE_SRC, (loaded) => {
-      sheet = loaded;
-      ready = true;
+      sheets = loaded;
+      sheet = loaded[skin]; // la ACTIVA, no la de por defecto: la skin pudo
+      ready = true; // cambiar mientras el PNG seguía en vuelo
     });
 
     keys.ArrowLeft = false;
@@ -928,10 +1145,28 @@ function createGame(
     if (paused) releaseKeys();
   }
 
+  /**
+   * Cambia de piel SIN tocar la partida: ni `paddle`, ni `ball`, ni `blocks`,
+   * ni `explosions`, ni `score`, ni `lives`, ni `level`. Solo reasigna la
+   * paleta y la hoja activas y repinta el frame en curso, para que el cambio
+   * se vea también en pausa o con el juego detenido.
+   *
+   * Las hojas ya vienen teñidas de `loadSpritesheet`: aquí no se decodifica ni
+   * se tiñe nada, así que no hay tirón. Si el PNG aún no ha cargado, `sheets`
+   * es `null` y solo cambia el fondo: los sprites entran ya teñidos cuando la
+   * carga termine, porque el callback lee esta misma `skin`.
+   */
+  function setSkin(next: SkinId): void {
+    skin = next;
+    palette = PALETTES[next];
+    if (sheets) sheet = sheets[next];
+    draw();
+  }
+
   // Estado inicial listo antes del primer frame: nivel 1 en pantalla desde ya.
   loadLevel(1);
 
-  return { start, stop, restart, setPaused };
+  return { start, stop, restart, setPaused, setSkin };
 }
 
 // ── Componente React ────────────────────────────────────────────────────────
@@ -939,11 +1174,11 @@ function createGame(
 // Ata el ciclo de vida del juego: el efecto de montaje crea la partida con
 // `createGame`, la arranca y —en el cleanup— la apaga entera (rAF, listeners,
 // ResizeObserver y el `onload` del spritesheet). Los callbacks entran por refs
-// espejo para NO recrear el juego cuando cambian, `paused` viaja en un efecto
-// aparte, y `restart()` se expone como método imperativo.
+// espejo para NO recrear el juego cuando cambian, `paused` y `skin` viajan cada
+// uno en un efecto aparte, y `restart()` se expone como método imperativo.
 
 const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
-  function ArkanoidGame({ paused, onSnapshot, onGameOver }, ref) {
+  function ArkanoidGame({ paused, skin, onSnapshot, onGameOver }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const gameRef = useRef<GameController | null>(null);
 
@@ -983,6 +1218,14 @@ const ArkanoidGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
     useEffect(() => {
       gameRef.current?.setPaused(paused);
     }, [paused]);
+
+    // Propaga la piel elegida en el HUD. Efecto APARTE, con `skin` como única
+    // dependencia: si `skin` entrase en las deps del efecto de montaje, cada
+    // cambio destruiría y recrearía el juego y el jugador perdería los bloques
+    // ya rotos, las vidas y la puntuación al tocar el selector.
+    useEffect(() => {
+      gameRef.current?.setSkin(skin ?? DEFAULT_SKIN);
+    }, [skin]);
 
     // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
     useImperativeHandle(
