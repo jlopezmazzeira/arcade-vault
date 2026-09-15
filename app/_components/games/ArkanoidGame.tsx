@@ -132,6 +132,13 @@ const MAX_STEP_PX = 8;
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pelota no salta. */
 const DT_CAP = 50; // ms
 
+/**
+ * Fondo del lienzo. Único color escrito a mano del fichero: todo lo demás sale
+ * del spritesheet. La SPEC 13 lo saca a constante para que la skin pueda
+ * reemplazarlo; el valor es el mismo que pintaba `draw()` hasta ahora.
+ */
+const CLASSIC_BACKGROUND = "#000";
+
 // ── Teclado ─────────────────────────────────────────────────────────────────
 //
 // Solo `←` y `→`, como `rocas` y `caida`. Las teclas `P` / `Escape` de pausa del
@@ -745,7 +752,7 @@ function createGame(
   // clásico al portar un juego vanilla.
   function draw(): void {
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = CLASSIC_BACKGROUND;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     // Sin hoja no hay nada que pintar: solo el fondo. Dura lo que tarde el PNG.
