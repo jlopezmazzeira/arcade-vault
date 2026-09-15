@@ -515,6 +515,7 @@ type GameController = {
   stop: () => void;
   restart: () => void;
   setPaused: (paused: boolean) => void;
+  setSkin: (skin: SkinId) => void;
 };
 
 /**
@@ -904,7 +905,18 @@ function createGame(
     if (paused) soltarTeclas();
   }
 
-  return { start, stop, restart, setPaused };
+  // Cambiar de piel NO reinicia: solo cambia con qué se pinta. Ni `board`, ni
+  // `current`, ni `next`, ni `score`, ni `lines`, ni `level`, ni `dropInterval`
+  // se tocan aquí — y por eso se puede llamar con la partida en curso o en
+  // pausa.
+  function setSkin(next: SkinId): void {
+    palette = PALETTES[next] ?? PALETTES[DEFAULT_SKIN];
+    // Repinta el frame en curso: en pausa y en fin de partida el bucle no
+    // avanza, y sin esto el cambio no se vería hasta reanudar.
+    draw();
+  }
+
+  return { start, stop, restart, setPaused, setSkin };
 }
 
 // ── Componente React ────────────────────────────────────────────────────────
