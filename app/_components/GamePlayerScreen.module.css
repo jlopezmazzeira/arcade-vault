@@ -1,0 +1,114 @@
+/* Selector de piel del HUD. Scopeado al componente: app/globals.css no se toca.
+   El control es un ESTADO, no una acción, así que no reutiliza `.btn` — se lee
+   como un `hud-stat` en el que se puede pulsar. Cada segmento lleva el punto de
+   color de su propia piel, de modo que el selector enseña la piel además de
+   nombrarla, y el marco CRT, las scanlines y los colores del HUD siguen siendo
+   los mismos para las tres. */
+
+.skins {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  /* Esquina cortada, como la de `.btn`: el control es nuevo, el lenguaje no. */
+  clip-path: polygon(
+    6px 0,
+    100% 0,
+    100% calc(100% - 6px),
+    calc(100% - 6px) 100%,
+    0 100%,
+    0 6px
+  );
+}
+
+.skin {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 0;
+  font-family: var(--pixel);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.skin:hover {
+  color: var(--ink-dim);
+}
+
+.skin:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.skin[aria-pressed="true"] {
+  color: var(--ink);
+  background: rgba(0, 245, 255, 0.08);
+}
+
+/* El punto: la muestra de la piel. Apagado mientras la piel no está activa. */
+.dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  opacity: 0.45;
+  transition:
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.skin[aria-pressed="true"] .dot {
+  opacity: 1;
+}
+
+.skin[data-skin="clasico"] .dot {
+  background: #fff;
+}
+.skin[data-skin="clasico"][aria-pressed="true"] .dot {
+  box-shadow: 0 0 7px rgba(255, 255, 255, 0.85);
+}
+
+/* Dos matices en un punto: neón es la piel saturada y multicolor. */
+.skin[data-skin="neon"] .dot {
+  background: linear-gradient(
+    135deg,
+    var(--cyan) 0 50%,
+    var(--magenta) 50% 100%
+  );
+}
+.skin[data-skin="neon"][aria-pressed="true"] .dot {
+  box-shadow: 0 0 7px rgba(0, 245, 255, 0.75);
+}
+
+.skin[data-skin="retro"] .dot {
+  background: #ffb454;
+}
+.skin[data-skin="retro"][aria-pressed="true"] .dot {
+  box-shadow: 0 0 7px rgba(255, 180, 84, 0.8);
+}
+
+/* El HUD ya se apila en móvil; ahí el punto basta y las etiquetas sobran. */
+@media (max-width: 520px) {
+  .skin {
+    padding: 9px 10px;
+  }
+  .label {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skin,
+  .dot {
+    transition: none;
+  }
+}

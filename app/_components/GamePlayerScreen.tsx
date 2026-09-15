@@ -12,6 +12,14 @@ import { saveScore, type SaveScoreState } from "@/app/juegos/[id]/actions";
 import type { Game } from "@/data/games";
 import { getPlayableGame } from "./games/registry";
 import type { GameSnapshot, PlayableGameHandle } from "./games/AsteroidsGame";
+import {
+  DEFAULT_SKIN,
+  SKIN_IDS,
+  SKIN_LABELS,
+  isSkinId,
+  type SkinId,
+} from "./games/skins";
+import styles from "./GamePlayerScreen.module.css";
 
 // Despachador: si el juego está adaptado (registro), monta el juego real y
 // cablea el HUD/botones a él; si no, mantiene EXACTAMENTE el mock de siempre.
@@ -53,6 +61,10 @@ const INITIAL_SNAPSHOT: GameSnapshot = {
   status: "playing",
 };
 
+// Una clave por juego: la piel que luce bien en un vectorial no tiene por qué
+// ser la que se quiere en uno de sprites.
+const skinKey = (gameId: string) => `av-skin-${gameId}`;
+
 function PlayableGamePlayer({
   game,
   Playable,
@@ -66,6 +78,10 @@ function PlayableGamePlayer({
   const [snap, setSnap] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
+  // El primer render pinta SIEMPRE `clasico`: la preferencia guardada se lee en
+  // un efecto, porque el servidor no tiene `localStorage` y leerlo durante el
+  // render daría error de hidratación.
+  const [skin, setSkin] = useState<SkinId>(DEFAULT_SKIN);
   const [name, setName] = useState(playerName ?? "INVITADO");
   // `useActionState` no se puede resetear: al empezar otra partida se remonta el
   // formulario cambiando su `key`, y así vuelve a `idle`.
@@ -75,6 +91,33 @@ function PlayableGamePlayer({
   // real sin saturar React.
   const onSnapshot = useCallback((s: GameSnapshot) => setSnap(s), []);
   const onGameOver = useCallback(() => setOver(true), []);
+
+  // Lectura: solo al montar. Un valor desconocido o un acceso que lanza (modo
+  // privado) dejan la piel en `clasico` sin romper la partida.
+  //
+  // El render, servidor y cliente, pinta SIEMPRE `DEFAULT_SKIN`; la preferencia
+  // guardada entra después de hidratar. Ese segundo render es justo lo que
+  // `set-state-in-effect` desaconseja, y aquí es lo que se quiere: es la única
+  // forma de leer `localStorage` sin que el HTML del servidor y el del cliente
+  // discrepen. Ocurre una vez por montaje, no en cascada.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(skinKey(game.id));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (isSkinId(stored)) setSkin(stored);
+    } catch {
+      // Sin persistencia disponible: `clasico` y a jugar.
+    }
+  }, [game.id]);
+
+  // Escritura: cada vez que cambia la piel elegida.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(skinKey(game.id), skin);
+    } catch {
+      // Ídem: no poder recordar la piel no impide usarla en esta sesión.
+    }
+  }, [game.id, skin]);
 
   const restart = () => {
     gameRef.current?.restart(); // score 0, 3 vidas, nivel 1
@@ -127,6 +170,30 @@ function PlayableGamePlayer({
           ))}
         </div>
         <div className="hud-actions">
+          <div
+            className={styles.skins}
+            role="group"
+            aria-label="Piel del juego"
+          >
+            {SKIN_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={styles.skin}
+                data-skin={id}
+                aria-pressed={skin === id}
+                onClick={(e) => {
+                  // Mismo gesto que PAUSA y FIN: sin foco pegado, la barra
+                  // espaciadora vuelve a disparar en vez de reactivar el botón.
+                  e.currentTarget.blur();
+                  setSkin(id);
+                }}
+              >
+                <span className={styles.dot} aria-hidden="true" />
+                <span className={styles.label}>{SKIN_LABELS[id]}</span>
+              </button>
+            ))}
+          </div>
           <button
             className="btn yellow"
             onClick={(e) => {
@@ -158,6 +225,7 @@ function PlayableGamePlayer({
           <Playable
             ref={gameRef}
             paused={paused}
+            skin={skin}
             onSnapshot={onSnapshot}
             onGameOver={onGameOver}
           />

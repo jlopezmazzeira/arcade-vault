@@ -22,7 +22,9 @@ npm run lint    # ESLint (flat config, eslint-config-next core-web-vitals + type
 ```
 
 No test runner is configured yet.
+
 ## Skills
+
 Always use /frontend-design when you need to create HTML designs
 
 ## Agentes
@@ -62,11 +64,32 @@ a ese flujo, para explorar sin comprometer el catálogo:
   de lo descartado y esta skill negocia la spec contigo. `agent-jam` es para explorar un tema
   y leerlo en frío.
 
+**El subagente `skin-designer`** (`.claude/agents/skin-designer.md`) trabaja en un **eje
+transversal** a los dos anteriores: no decide qué juego entra, sino que **todo juego ya
+jugable se pueda vestir**:
+
+**`skin-designer` → auditoría → aprobación → `specs/NN-skins-…` → `/spec-impl`**
+
+- Audita que toda entrada de `app/_components/games/registry.ts` ofrezca las **tres skins
+  obligatorias**: `clasico` (la por defecto, que reproduce exactamente lo que el juego pinta
+  hoy), `neon` y `retro`. Los juegos aún en mock no se auditan: no tienen canvas que vestir.
+- **La skin pinta el canvas y nada más.** El marco CRT, las scanlines y el HUD son de la
+  plataforma e iguales para las tres; `app/globals.css` no se toca. La única superficie de
+  chrome es el selector en el HUD, que define la spec de contrato.
+- «Se ve bien en oscuro» se verifica con **ratios de contraste WCAG calculados**, no a ojo:
+  ≥ 4.5:1 para entidades jugables contra el fondo de su propia skin, ≥ 1.5:1 entre entidades
+  que hay que distinguir (con excepción si ya difieren por forma) y 1.1–2.5:1 para el decorado.
+- **Pregunta antes de escribir**: enseña la auditoría y el plan de specs, y solo escribe tras
+  aprobación. A diferencia de `agent-jam`, sus specs entran en la **serie numerada** de
+  `specs/`, no en una carpeta de candidatas.
+- No tiene fichero de memoria, y es deliberado: el estado de las skins se lee entero desde el
+  código en cada ronda. No escribe código, ni CSS, ni SQL.
+
 ## Stack & critical version notes
 
 This is **Next.js 16.2.10** with the App Router, **React 19.2**, and **Tailwind CSS v4** — all newer than typical training data. `AGENTS.md` requires reading the relevant guide under `node_modules/next/dist/docs/` before writing code. The v16 breaking-change guide is `node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`. Key differences from older Next.js that break familiar patterns:
 
-- **Async Request APIs (hard breaking change):** `params`, `searchParams`, `cookies()`, `headers()`, and `draftMode()` are Promises and *must* be awaited — the synchronous compatibility shim from v15 is fully removed. Use typed helpers like `PageProps<'/route/[slug]'>`; run `npx next typegen` to generate them.
+- **Async Request APIs (hard breaking change):** `params`, `searchParams`, `cookies()`, `headers()`, and `draftMode()` are Promises and _must_ be awaited — the synchronous compatibility shim from v15 is fully removed. Use typed helpers like `PageProps<'/route/[slug]'>`; run `npx next typegen` to generate them.
 - **`middleware` → `proxy`:** the `middleware.ts` file convention and named `middleware` export are deprecated; use `proxy` instead.
 - **Turbopack is the default** dev/build bundler (no `--turbo` flag needed).
 - **`revalidateTag(tag)`** now requires a second `cacheLife` profile argument.
