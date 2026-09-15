@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import styles from "./AsteroidsGame.module.css";
+import { DEFAULT_SKIN, type SkinId } from "./skins";
 import type {
   GameSnapshot,
   PlayableGameHandle,
@@ -45,7 +46,97 @@ type GameController = {
   stop: () => void;
   restart: () => void;
   setPaused: (paused: boolean) => void;
+  /** Reasigna la paleta y repinta. NO toca el estado de la partida. */
+  setSkin: (skin: SkinId) => void;
 };
+
+// ── Paletas ─────────────────────────────────────────────────────────────────
+//
+// Las ocho superficies pintables de Asteroids, todas vectoriales. La paleta se
+// pasa como ARGUMENTO de cada `draw`, nunca se captura en el constructor de la
+// entidad: así un asteroide creado antes de cambiar de piel se repinta con la
+// nueva en el frame siguiente, en vez de dejar la partida con dos pieles a la
+// vez. Los ratios de contraste de cada color contra el fondo de SU piel están
+// calculados en specs/11-skins-asteroids-rocas.md.
+
+type Palette = {
+  background: string;
+  ship: string;
+  /** Se pinta con alpha 0.85, como siempre. */
+  thrust: string;
+  asteroid: string;
+  bullet: string;
+  /** Marco rotado y texto "3x". */
+  powerUp: string;
+  /** Canal RGB suelto: se compone como `rgba(${particle},${alpha})`. */
+  particle: string;
+  /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
+  glow: number;
+};
+
+// `clasico` son los literales que este fichero tenía escritos dentro de las
+// llamadas de dibujo, copiados uno a uno —formas cortas incluidas—. No es una
+// piel nueva: es el nombre del estado actual, y la red de no regresión.
+const clasico: Palette = {
+  background: "#000",
+  ship: "#fff",
+  thrust: "rgba(255, 130, 0, 0.85)",
+  asteroid: "#fff",
+  bullet: "#fff",
+  powerUp: "#0ff",
+  particle: "255,255,255",
+  glow: 0,
+};
+
+// Saturada, anclada a los tokens de app/globals.css. Los asteroides no usan
+// --magenta puro (#ff006e, 5.48:1 sobre negro y menos sobre este fondo): #ff2d95
+// conserva el matiz y llega a 5.96:1.
+const neon: Palette = {
+  background: "#05010f",
+  ship: "#00f5ff",
+  thrust: "rgba(255, 90, 31, 0.85)",
+  asteroid: "#ff2d95",
+  bullet: "#f5ff00",
+  powerUp: "#ff9d00",
+  particle: "168,255,240",
+  glow: 8,
+};
+
+// Fósforo ámbar de monitor CRT. El fondo no es negro puro a propósito: un negro
+// puro con entidades ámbar no lee como fósforo. Seis superficies dentro de un
+// solo matiz, separadas por brillo y por forma.
+const retro: Palette = {
+  background: "#1a1206",
+  ship: "#ffdb99",
+  thrust: "rgba(255, 90, 31, 0.85)",
+  asteroid: "#c07a24",
+  bullet: "#fff3d4",
+  powerUp: "#ff9c2e",
+  particle: "217,154,60",
+  glow: 0,
+};
+
+const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
+
+/** Halo: solo `neon` lo pide. Con `glow` a 0 no se toca `shadowBlur` siquiera. */
+function withGlow(
+  ctx: CanvasRenderingContext2D,
+  glow: number,
+  color: string,
+): void {
+  if (glow > 0) {
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = color;
+  }
+}
+
+/** Contrapartida de `withGlow` para los dibujos que no van dentro de save(). */
+function clearGlow(ctx: CanvasRenderingContext2D, glow: number): void {
+  if (glow > 0) {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+}
 
 // ── Constantes (portadas 1:1 desde game.js) ─────────────────────────────────
 
@@ -110,11 +201,13 @@ class Bullet {
     if (this.ttl <= 0) this.dead = true;
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
-    ctx.fillStyle = "#fff";
+  draw(ctx: CanvasRenderingContext2D, palette: Palette): void {
+    withGlow(ctx, palette.glow, palette.bullet);
+    ctx.fillStyle = palette.bullet;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
     ctx.fill();
+    clearGlow(ctx, palette.glow);
   }
 }
 
@@ -170,11 +263,12 @@ class Asteroid {
     ];
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  draw(ctx: CanvasRenderingContext2D, palette: Palette): void {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
-    ctx.strokeStyle = "#fff";
+    ctx.strokeStyle = palette.asteroid;
+    withGlow(ctx, palette.glow, palette.asteroid);
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -218,22 +312,26 @@ class PowerUp {
     if (this.ttl <= 0) this.dead = true;
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  draw(ctx: CanvasRenderingContext2D, palette: Palette): void {
     if (this.ttl < 2 && Math.floor(this.ttl * 8) % 2 === 0) return;
     const pulse = 0.85 + Math.sin(performance.now() / 150) * 0.15;
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(Math.PI / 4);
-    ctx.strokeStyle = "#0ff";
+    ctx.strokeStyle = palette.powerUp;
+    withGlow(ctx, palette.glow, palette.powerUp);
     ctx.lineWidth = 2;
     const r = this.radius * pulse;
     ctx.strokeRect(-r, -r, r * 2, r * 2);
     ctx.restore();
-    ctx.fillStyle = "#0ff";
+    // El texto va fuera del save(): el halo se pone y se quita a mano.
+    withGlow(ctx, palette.glow, palette.powerUp);
+    ctx.fillStyle = palette.powerUp;
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("3x", this.x, this.y);
+    clearGlow(ctx, palette.glow);
   }
 }
 
@@ -307,7 +405,7 @@ class Ship {
     return [new Bullet(ox, oy, this.angle)];
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  draw(ctx: CanvasRenderingContext2D, palette: Palette): void {
     if (this.dead) return;
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0)
@@ -316,7 +414,8 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = "#fff";
+    ctx.strokeStyle = palette.ship;
+    withGlow(ctx, palette.glow, palette.ship);
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
 
@@ -335,7 +434,8 @@ class Ship {
       ctx.moveTo(-8, -4);
       ctx.lineTo(-8 - rand(6, 14), 0);
       ctx.lineTo(-8, 4);
-      ctx.strokeStyle = "rgba(255, 130, 0, 0.85)";
+      ctx.strokeStyle = palette.thrust;
+      withGlow(ctx, palette.glow, palette.thrust);
       ctx.stroke();
     }
 
@@ -373,14 +473,17 @@ class Particle {
     if (this.ttl <= 0) this.dead = true;
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  draw(ctx: CanvasRenderingContext2D, palette: Palette): void {
     const alpha = this.ttl / this.life;
-    ctx.strokeStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+    const color = `rgba(${palette.particle},${alpha.toFixed(2)})`;
+    ctx.strokeStyle = color;
+    withGlow(ctx, palette.glow, color);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(this.x, this.y);
     ctx.lineTo(this.x - this.vx * 0.05, this.y - this.vy * 0.05);
     ctx.stroke();
+    clearGlow(ctx, palette.glow);
   }
 }
 
@@ -439,6 +542,11 @@ function createGame(
   let deadTimer = 0;
   let powerUpSpawned = false;
   let killsSinceSpawn = 0;
+
+  // ── Piel activa ──
+  // Se lee en el momento de dibujar; `setSkin` la reasigna y repinta. Arranca en
+  // la piel por defecto y `restart()` no la toca: morir no devuelve a `clasico`.
+  let palette: Palette = PALETTES[DEFAULT_SKIN];
 
   // ── Ciclo de vida ──
   let running = false;
@@ -652,14 +760,14 @@ function createGame(
   function draw(): void {
     // Base: mapea las coordenadas lógicas 800×600 al búfer real del canvas.
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, W, H);
 
-    particles.forEach((p) => p.draw(ctx));
-    asteroids.forEach((a) => a.draw(ctx));
-    powerUps.forEach((p) => p.draw(ctx));
-    bullets.forEach((b) => b.draw(ctx));
-    ship.draw(ctx);
+    particles.forEach((p) => p.draw(ctx, palette));
+    asteroids.forEach((a) => a.draw(ctx, palette));
+    powerUps.forEach((p) => p.draw(ctx, palette));
+    bullets.forEach((b) => b.draw(ctx, palette));
+    ship.draw(ctx, palette);
   }
 
   // ── Loop principal ──
@@ -744,7 +852,17 @@ function createGame(
     }
   }
 
-  return { start, stop, restart, setPaused };
+  // Cambiar de piel NO reinicia: solo cambia con qué se pinta. Ni `ship`, ni
+  // `asteroids`, ni `score`, ni `lives`, ni `level` se tocan aquí — y por eso se
+  // puede llamar con la partida en curso o en pausa.
+  function setSkin(next: SkinId): void {
+    palette = PALETTES[next] ?? PALETTES[DEFAULT_SKIN];
+    // Repinta el frame en curso: en pausa el bucle no dibuja, y sin esto el
+    // cambio no se vería hasta reanudar.
+    if (ship) draw();
+  }
+
+  return { start, stop, restart, setPaused, setSkin };
 }
 
 // ── Componente React ────────────────────────────────────────────────────────
@@ -756,7 +874,7 @@ function createGame(
 // expone como método imperativo vía `useImperativeHandle`.
 
 const AsteroidsGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
-  function AsteroidsGame({ paused, onSnapshot, onGameOver }, ref) {
+  function AsteroidsGame({ paused, skin, onSnapshot, onGameOver }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const gameRef = useRef<GameController | null>(null);
 
@@ -793,6 +911,14 @@ const AsteroidsGame = forwardRef<PlayableGameHandle, PlayableGameProps>(
     useEffect(() => {
       gameRef.current?.setPaused(paused);
     }, [paused]);
+
+    // Propaga la piel elegida en el HUD. Efecto APARTE, con `skin` como única
+    // dependencia: si `skin` entrase en las deps del efecto de montaje, cada
+    // cambio destruiría y recrearía el juego y el jugador perdería la partida
+    // al tocar el selector.
+    useEffect(() => {
+      gameRef.current?.setSkin(skin ?? DEFAULT_SKIN);
+    }, [skin]);
 
     // Orden imperativa de reinicio para el botón "JUGAR DE NUEVO".
     useImperativeHandle(
