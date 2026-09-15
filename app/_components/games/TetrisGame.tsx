@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
+import type { SkinId } from "./skins";
 import styles from "./TetrisGame.module.css";
 import type {
   GameSnapshot,
@@ -143,6 +144,102 @@ const BOARD_TINT = "rgba(0, 245, 255, 0.03)";
 const BOARD_BORDER = "rgba(0, 245, 255, 0.25)";
 const LABEL_COLOR = "#8a8fb5"; // --ink-dim
 const CELL_HIGHLIGHT = "rgba(255,255,255,0.12)";
+
+// ── Paletas de skin ─────────────────────────────────────────────────────────
+//
+// Las once superficies pintables de Tetris, todas vectoriales. La paleta se
+// pasa como ARGUMENTO de cada `draw`, nunca se captura al construir el estado:
+// así una pieza ya fijada en el tablero antes de cambiar de piel se repinta con
+// la nueva en el frame siguiente, en vez de dejar el tablero con dos pieles a
+// la vez. Los ratios de contraste de cada color contra el fondo de SU piel
+// están calculados en specs/12-skins-tetris-caida.md.
+
+type Palette = {
+  background: string;
+  /** Rejilla tenue sobre todo el lienzo. */
+  grid: string;
+  /** Relleno del tablero de juego. */
+  boardTint: string;
+  /** Borde del tablero y del recuadro de SIGUIENTE. */
+  boardBorder: string;
+  /** Rótulo "SIGUIENTE". */
+  label: string;
+  /** Barra de brillo superior del bloque. No se tiñe en ninguna skin. */
+  cellHighlight: string;
+  /** Los siete tetrominós, de I a L. */
+  pieces: Record<PieceType, string>;
+  /** `shadowBlur` del halo. 0 en `clasico` y en `retro`. */
+  glow: number;
+};
+
+// `clasico` son los literales que este fichero ya tenía escritos, copiados uno
+// a uno —formas cortas incluidas—. No es una piel nueva: es el nombre del
+// estado actual, y la red de no regresión de todo este eje.
+const clasico: Palette = {
+  background: "#000",
+  grid: "rgba(0, 245, 255, 0.08)",
+  boardTint: "rgba(0, 245, 255, 0.03)",
+  boardBorder: "rgba(0, 245, 255, 0.25)",
+  label: "#8a8fb5",
+  cellHighlight: "rgba(255,255,255,0.12)",
+  pieces: {
+    1: "#4dd0e1", // I
+    2: "#ffd54f", // O
+    3: "#ba68c8", // T
+    4: "#81c784", // S
+    5: "#e57373", // Z
+    6: "#90caf9", // J
+    7: "#ffb74d", // L
+  },
+  glow: 0,
+};
+
+// Saturada y con halo. Las piezas I, O y S se anclan a los tokens --cyan,
+// --yellow y --green de app/globals.css, los mismos de los que ya tira `rocas`:
+// las tres skins deben leerse como una familia. El fondo es el de la `neon` de
+// AsteroidsGame.tsx, por lo mismo.
+const neon: Palette = {
+  background: "#05010f",
+  grid: "rgba(0, 245, 255, 0.16)",
+  boardTint: "rgba(0, 245, 255, 0.10)",
+  boardBorder: "rgba(0, 245, 255, 0.32)",
+  label: "#7ad9ff",
+  cellHighlight: "rgba(255,255,255,0.12)",
+  pieces: {
+    1: "#00f5ff", // I — token --cyan
+    2: "#f5ff00", // O — token --yellow
+    3: "#c04dff", // T
+    4: "#00ff88", // S — token --green
+    5: "#ff3d6e", // Z
+    6: "#4d8bff", // J
+    7: "#ff9d00", // L
+  },
+  glow: 8,
+};
+
+// Fósforo ámbar de monitor CRT, sin halo. Un monitor ámbar no tiene siete
+// colores: tiene siete niveles de excitación del fósforo, y por eso la rampa va
+// de #fff0c9 a #c2822d separando las piezas por brillo, no por matiz.
+const retro: Palette = {
+  background: "#1a1206",
+  grid: "rgba(255, 176, 0, 0.13)",
+  boardTint: "rgba(255, 176, 0, 0.08)",
+  boardBorder: "rgba(255, 176, 0, 0.35)",
+  label: "#c08a2e",
+  cellHighlight: "rgba(255,255,255,0.12)",
+  pieces: {
+    1: "#fff0c9", // I
+    2: "#ffd98a", // O
+    3: "#f0b24a", // T
+    4: "#d99a3c", // S
+    5: "#c98a2e", // Z
+    6: "#c2822d", // J
+    7: "#ffc266", // L
+  },
+  glow: 0,
+};
+
+const PALETTES: Record<SkinId, Palette> = { clasico, neon, retro };
 
 /** Tope de `dt`: al volver de una pestaña en segundo plano la pieza no cae de golpe. */
 const DT_CAP = 50; // ms
